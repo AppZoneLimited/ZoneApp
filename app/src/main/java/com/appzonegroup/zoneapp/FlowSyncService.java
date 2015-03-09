@@ -5,8 +5,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.widget.Toast;
+
+import com.orm.androrm.Filter;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -62,7 +65,7 @@ public class FlowSyncService extends IntentService {
     private static final int NET_CONNECT_TIMEOUT_MILLIS = 15000;  // 15 seconds
 
     /**
-     * Service class name.
+     * Service class tableName.
      */
     private static final String TAG = FlowSyncService.class.getSimpleName();
 
@@ -177,6 +180,8 @@ public class FlowSyncService extends IntentService {
                 }
             }
         }
+
+        //Upload Data to server
     }
 
     /**
@@ -221,6 +226,9 @@ public class FlowSyncService extends IntentService {
     private List<Link> getNewLinks(Function function) {
         //Save Function to db
         function.save(this);
+        //check on links in db associated with the function not successful
+        Filter filter = new Filter();
+        filter.is("success",0);
         //save associated links
         Link link = new Link();
         link.setType("client");
@@ -308,13 +316,25 @@ public class FlowSyncService extends IntentService {
 
     private List<Function> getFunctionListFromServer() {
 
-        Function fxn = new Function();
-        fxn.setFunctionName("team");
-        fxn.setVersion(1);
-        fxn.setFunctionId("a1");
+        Function fxn1 = new Function();
+        fxn1.setFunctionName("team");
+        fxn1.setVersion(1);
+        fxn1.setFunctionId("a1");
+
+        Function fxn2 = new Function();
+        fxn2.setFunctionName("team");
+        fxn2.setVersion(1);
+        fxn2.setFunctionId("a1");
+
+        Function fxn3 = new Function();
+        fxn3.setFunctionName("team");
+        fxn3.setVersion(1);
+        fxn3.setFunctionId("a1");
 
         ArrayList<Function> list = new ArrayList<Function>();
-        list.add(fxn);
+        list.add(fxn1);
+        list.add(fxn2);
+        list.add(fxn3);
 
         return list;
     }
@@ -362,9 +382,10 @@ public class FlowSyncService extends IntentService {
                 }
             } else {
                 // Network Unavailable
-                break;
+                return false;
             }
         }
+        sendMessage(function.getId());
         return success;
     }
 
@@ -426,4 +447,12 @@ public class FlowSyncService extends IntentService {
         }
         return buf.toString();
     }
+
+    private void sendMessage(int no) {
+        Intent intent = new Intent("my-event");
+        // add data
+        intent.putExtra("message", no);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
 }

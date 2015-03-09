@@ -3,9 +3,12 @@ package com.appzonegroup.zoneapp;
 import android.app.IntentService;
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Bundle;
+import android.provider.ContactsContract;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,6 +76,54 @@ public class ContactSyncService extends IntentService {
                 //No Internet Available
             }
         }
+    }
+
+    public Bundle getContact(){
+        Bundle contact = new Bundle();
+
+        Cursor cursor = getContentResolver().query(
+                ContactsContract.Contacts.CONTENT_URI, null, null, null, null);
+
+
+        String contactId = cursor.getString(cursor
+                .getColumnIndex(ContactsContract.Contacts._ID));
+
+        String name = cursor.getString(cursor
+                .getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME));
+
+        Cursor phones = getContentResolver().query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+                ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = " + contactId, null, null);
+        while (phones.moveToNext()) {
+            String number = phones.getString(phones
+                    .getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
+            int type = phones.getInt(phones.getColumnIndex(ContactsContract.CommonDataKinds.Phone.TYPE));
+            switch (type) {
+                case ContactsContract.CommonDataKinds.Phone.TYPE_HOME:
+                    Log.e("TYPE_HOME", "" + number);
+                    break;
+                case ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE:
+                    Log.e("TYPE_MOBILE", "" + number);
+                    break;
+                case ContactsContract.CommonDataKinds.Phone.TYPE_WORK:
+                    Log.e("TYPE_WORK", "" + number);
+                    break;
+                case ContactsContract.CommonDataKinds.Phone.TYPE_FAX_WORK:
+                    Log.e("TYPE_FAX_WORK", "" + number);
+                    break;
+                case ContactsContract.CommonDataKinds.Phone.TYPE_FAX_HOME:
+                    Log.e("TYPE_FAX_HOME", "" + number);
+                    break;
+
+                case ContactsContract.CommonDataKinds.Phone.TYPE_OTHER:
+                    Log.e("TYPE_OTHER", "" + number);
+                    break;
+            }
+        }
+        phones.close();
+        cursor.close();
+
+        return contact;
     }
 
     private boolean isZoneContact(String contact) {
