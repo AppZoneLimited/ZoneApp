@@ -48,7 +48,12 @@
 
         <service
             android:name=".ContactSyncService"
-            android:exported="false" >
+            android:exported="true" >
+        </service>
+
+        <service
+            android:name=".LocalEntityService"
+            android:exported="true" >
         </service>
     </application>
 

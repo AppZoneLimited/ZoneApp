@@ -15,7 +15,7 @@ public class Contact extends Model {
     protected CharField number;
 
     public Contact(){
-        super();
+        super(true);
 
         name = new CharField();
         number = new CharField();

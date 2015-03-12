@@ -1,19 +1,25 @@
 package com.appzonegroup.zoneapp;
 
+import android.app.IntentService;
 import android.content.Context;
+import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.support.v4.content.LocalBroadcastManager;
 import android.text.TextUtils;
+import android.util.Log;
 
-import com.google.gson.Gson;
+import com.koushikdutta.async.future.FutureCallback;
+import com.koushikdutta.ion.Ion;
 import com.orm.androrm.Filter;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 
 import database.Entity;
-import json.Data;
-import json.EntityData;
-import json.EventData;
-import json.Instruction;
-import json.Output;
 
 /**
  * Created by emacodos on 3/7/2015.
@@ -35,77 +41,94 @@ import json.Output;
  *           is used to identify the row to be deleted.
 */
 
-public class LocalEntityService {
+public class LocalEntityService extends IntentService{
 
     public static final String TAG = LocalEntityService.class.getSimpleName();
+
+    public static final String PARAM_INSTRUCTION = "instruction";
+    public static final String PARAM_DATA = "data";
 
     public static final String OPERATION_CREATE = "create";
     public static final String OPERATION_UPDATE = "update";
     public static final String OPERATION_RETRIEVE = "retrieve";
     public static final String OPERATION_DELETE = "delete";
 
-    public static final String EVENT_NAME_CREATE = "Entity Created";
-    public static final String EVENT_NAME_UPDATE = "Entity Updated";
-    public static final String EVENT_NAME_RETRIEVE = "Entity Retrieved";
-    public static final String EVENT_NAME_DELETE = "Entity Deleted";
+    public static final String NAME_TYPE = "type";
+    public static final String NAME_OPERATION = "operation";
+    public static final String NAME_ENTITY = "entity";
+    public static final String NAME_EVENT_NAME = "eventName";
+    public static final String NAME_EVENT_DATA = "eventData";
+    public static final String NAME_REASON = "reason";
+
+    public static final String VALUE_CREATED = "Entity Created";
+    public static final String VALUE_UPDATED = "Entity Updated";
+    public static final String VALUE_RETRIEVED = "Entity Retrieved";
+    public static final String VALUE_DELETED = "Entity Deleted";
 
     public static final String EVENT_NAME_ERROR = "Entity Operation Failed";
 
     public static final String TYPE_SERVER = "server";
     public static final String TYPE_LOCAL = "local";
 
-    public static final String STATUS_FAILURE = "failure";
-    public static final String STATUS_SUCCESS = "success";
-
-    private static Gson mJson;
+    public static final String URL_ENTITY = "http://localhost/etrademanager";
 
     private static Context mContext;
+    private Object mEntityGroup = new Object();
+    private String mOutput;
 
     public LocalEntityService(){
+        super("LocalEntityService");
     }
 
-    public static String localEntityService(Context context, String instruction, String data){
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Ion.getDefault(this).configure().setLogging(TAG, Log.ERROR);
+    }
 
+    @Override
+    protected void onHandleIntent(Intent intent) {
+        if(intent != null) {
+            String inst = intent.getStringExtra(PARAM_INSTRUCTION);
+            String dat = intent.getStringExtra(PARAM_DATA);
+            String message = localEntityService(this, inst, dat);
+            sendMessage(message);
+        }
+    }
+
+    public static void startLocalEntityService(Context context, String instruction, String data) {
+        Intent intent = new Intent(context, LocalEntityService.class);
+        intent.putExtra(PARAM_INSTRUCTION, instruction);
+        intent.putExtra(PARAM_DATA, data);
+        context.startService(intent);
+    }
+
+    public String localEntityService(Context context, String instruction, String data){
         String type, operation, entity;
 
         mContext = context;
-        mJson = new Gson();
 
         if(instruction == null || TextUtils.isEmpty(instruction)){
             return eventError("Null instruction Value");
         }
         else {
             //Parse JSON instruction to Java Object
-            Instruction ins = mJson.fromJson(instruction, Instruction.class);
-            type = ins.getType();
-            operation = ins.getOperation();
-            entity = ins.getEntity();
+            try {
+                JSONObject inst = new JSONObject(instruction);
+                type = inst.getString(NAME_TYPE);
+                operation = inst.getString(NAME_OPERATION);
+                entity = inst.getString(NAME_ENTITY);
+            }
+            catch (Exception e){
+                return eventError("Bad Instruction");
+            }
 
             //Check for the method type
             switch (type) {
                 case TYPE_SERVER:
                     //Do server work
-                    switch (operation) {
-                        case OPERATION_CREATE:
-                            //Do Create
-                            return addNewRecordToServer(entity, data);
+                    return doServerOperation(instruction, data);
 
-                        case OPERATION_RETRIEVE:
-                            //Do Retrieve
-                            return queryServerDB(entity, data);
-
-                        case OPERATION_UPDATE:
-                            //Do Update
-                            return updateRecordInServer(entity, data);
-
-                        case OPERATION_DELETE:
-                            //Do Delete
-                            return deleteRecordFromServer(entity, data);
-
-                        default:
-                            return eventError("Unknown Operation");
-
-                    }
                 case TYPE_LOCAL:
                     //Do local work
                     switch (operation) {
@@ -134,23 +157,46 @@ public class LocalEntityService {
         }
     }
 
-    private static String addNewRecordToServer(String entity, String data) {
-        return null;
+
+    public String doServerOperation(String instruction, String data) {
+        if(instruction == null || TextUtils.isEmpty(instruction)){
+            return eventError("Null Instruction Value");
+        }
+        else if(data == null || TextUtils.isEmpty(data)){
+            return eventError("Null data Value");
+        }
+        else {
+            if (isNetworkAvailable()) {
+                Ion.with(mContext)
+                        .load("POST", URL_ENTITY)
+                        .setBodyParameter(PARAM_INSTRUCTION, instruction)
+                        .setBodyParameter(PARAM_DATA, data)
+                        .group(mEntityGroup)
+                        .asString()
+                        .setCallback(new FutureCallback<String>() {
+                            @Override
+                            public void onCompleted(Exception e, String result) {
+                                if (e != null) {
+                                    //success
+                                    mOutput = result;
+                                } else {
+                                    //failure
+                                    mOutput = eventError("Network Exception");
+                                }
+                            }
+                        });
+                if (mOutput != null)
+                    return mOutput;
+                else
+                    return eventError("Cannot Connect to the Url");
+            }
+            else {
+                return eventError("Internet Unavailable");
+            }
+        }
     }
 
-    private static String queryServerDB(String entity, String data) {
-        return null;
-    }
-
-    private static String updateRecordInServer(String entity, String data) {
-        return null;
-    }
-
-    private static String deleteRecordFromServer(String entity, String data) {
-        return null;
-    }
-
-    private static String addNewRecord(String entity, String data) {
+    public static String addNewRecord(String entity, String data) {
         if(entity == null || TextUtils.isEmpty(entity)){
             return eventError("Null entity Value");
         }
@@ -162,18 +208,7 @@ public class LocalEntityService {
             table.setEntityName(entity);
             table.setValue(data);
             if(table.save(mContext)){
-
-                Data d = mJson.fromJson(data, Data.class);
-                ArrayList<EntityData> entityDatas = d.getData();
-
-                EventData eventData = new EventData();
-                eventData.setRowId(table.getId() + "");
-                eventData.setData(entityDatas);
-
-                ArrayList<EventData> eventDataList = new ArrayList<>();
-                eventDataList.add(eventData);
-
-                return eventSuccess(EVENT_NAME_CREATE, eventDataList);
+                return eventSuccess(VALUE_CREATED, data);
             }
             else {
                 return eventError("SQL Error");
@@ -181,133 +216,144 @@ public class LocalEntityService {
         }
     }
 
-    private static String queryDB(String entity, String data) {
-        if(data == null || TextUtils.isEmpty(data)){
+    public static String queryDB(String entity, String data) {
+        if(data == null) {
             Filter filter = new Filter();
             filter.is(Entity.COLUMN_TABLE_NAME, entity);
             ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
                     .filter(filter).toList();
 
-            if(entities.size() > 0) {
-                ArrayList<EventData> eventDataList = new ArrayList<>();
+            if (entities.size() > 0) {
+                JSONObject output = new JSONObject();
+                JSONArray dataList = new JSONArray();
                 for (int i = 0; i < entities.size(); i++) {
-                    String dataStr = entities.get(i).getValue();
-
-                    Data dataObj = mJson.fromJson(dataStr, Data.class);
-                    ArrayList<EntityData> entityDatas = dataObj.getData();
-
-                    EventData eventData = new EventData();
-                    eventData.setRowId(entities.get(i).getId() + "");
-                    eventData.setData(entityDatas);
-
-                    eventDataList.add(eventData);
+                    dataList.put(entities.get(i).getValue());
                 }
-                return eventSuccess(EVENT_NAME_RETRIEVE, eventDataList);
+                try {
+                    output.put(NAME_EVENT_NAME, VALUE_RETRIEVED);
+                    output.put(NAME_EVENT_DATA, dataList);
+                    return output.toString();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    return eventError("JSON Error");
+                }
+            } else {
+                return eventError("No such Entity Found");
+            }
+        }
+        else {
+            JSONObject object;
+            try {
+                object = new JSONObject(data);
+            }
+            catch (JSONException e) {
+                e.printStackTrace();
+                return eventError("Invalid Data Value");
+            }
+            String id;
+            try {
+                id= object.getString(Entity.COLUMN_ID);
+            }
+            catch (JSONException e) {
+                e.printStackTrace();
+                return eventError("Invalid ID");
+            }
+            Filter filter = new Filter();
+            filter.is(Entity.COLUMN_TABLE_NAME, entity);
+            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
+                    .filter(filter).toList();
+            if (entities.size() > 0) {
+                for (int i=0; i<entities.size(); i++) {
+                    Entity table = entities.get(i);
+                    JSONObject jsonObject = null;
+                    try {
+                        jsonObject = new JSONObject(table.getValue());
+                    }
+                    catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                    String mId = null;
+                    if (jsonObject != null) {
+                        mId = jsonObject.optString(Entity.COLUMN_ID);
+                    }
+                    if (mId != null) {
+                        if(mId.equals(id)){
+                            JSONObject obj;
+                            try {
+                                obj = new JSONObject(table.getValue());
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                                return eventError("JSON Error");
+                            }
+                            return eventSuccess(VALUE_RETRIEVED, obj.toString());
+                        }
+                    }
+                }
             }
             else {
                 return eventError("No such Entity Found");
             }
         }
-        else {
-            int id;
-            Data d = mJson.fromJson(data, Data.class);
-            ArrayList<EntityData> entityDatas = d.getData();
-            String mId = null;
-            for (EntityData entityData: entityDatas){
-                if(entityData.getName().equals(Entity.COLUMN_ID)){
-                    mId = entityData.getValue();
-                    break;
-                }
-            }
-            if(mId == null || TextUtils.isEmpty(mId)){
-                //Error no Id
-                return eventError("ID Not Found");
-            }
-            else {
-                try {
-                    id = Integer.parseInt(mId);
-                }catch (Exception e){
-                    //Error fake id
-                    return eventError("Invalid ID");
-                }
-                if(id > 0) {
-                    Entity table = Entity.objects(mContext).get(id);
-                    if (table != null) {
-                        ArrayList<EventData> eventDataList = new ArrayList<>();
-                        String dataStr = table.getValue();
-
-                        Data dataObj = mJson.fromJson(dataStr, Data.class);
-                        ArrayList<EntityData> entityDataList = dataObj.getData();
-
-                        EventData eventData = new EventData();
-                        eventData.setRowId(id + "");
-                        eventData.setData(entityDataList);
-
-                        eventDataList.add(eventData);
-                        //success
-                        return eventSuccess(EVENT_NAME_RETRIEVE, eventDataList);
-                    }
-                    else {
-                        return eventError("ID Does Not Exist");
-                    }
-                }
-                else {
-                    return eventError("Invalid ID");
-                }
-            }
-        }
+        return eventError("No Match Found");
     }
 
-    private static String updateRecord(String entity, String data) {
+    public static String updateRecord(String entity, String data) {
         if(data == null || TextUtils.isEmpty(data)){
             return eventError("Null data Value");
         }
         else {
-            int id;
-            Data d = mJson.fromJson(data, Data.class);
-            ArrayList<EntityData> entityDatas = d.getData();
-            String mId = null;
-            for (EntityData entityData: entityDatas){
-                if(entityData.getName().equals(Entity.COLUMN_ID)){
-                    mId = entityData.getValue();
-                    entityDatas.remove(entityData);
-                    break;
-                }
+            JSONObject object;
+            try {
+                 object = new JSONObject(data);
             }
-            if(mId == null || TextUtils.isEmpty(mId)){
-                //Error no Id
-                return eventError("ID Not Found");
+            catch (JSONException e) {
+                e.printStackTrace();
+                return eventError("Invalid Data Value");
+            }
+            String id;
+            try {
+                id= object.getString(Entity.COLUMN_ID);
+            }
+            catch (JSONException e) {
+                e.printStackTrace();
+                return eventError("Invalid ID");
+            }
+            Filter filter = new Filter();
+            filter.is(Entity.COLUMN_TABLE_NAME, entity);
+            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
+                    .filter(filter).toList();
+            if (entities.size() > 0) {
+                for (int i=0; i<entities.size(); i++) {
+                    Entity table = entities.get(i);
+                    JSONObject jsonObject = null;
+                    try {
+                        jsonObject = new JSONObject(table.getValue());
+                    }
+                    catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                    String mId = null;
+                    if (jsonObject != null) {
+                        mId = jsonObject.optString(Entity.COLUMN_ID);
+                    }
+                    if (mId != null) {
+                        if (mId.equals(id)) {
+                            table.delete(mContext);
+                            table.setValue(data);
+                            table.save(mContext);
+                            return eventSuccess(VALUE_UPDATED, data);
+                        }
+                    }
+                }
             }
             else {
-                try {
-                    id = Integer.parseInt(mId);
-                } catch (Exception e) {
-                    //Error fake id
-                    return eventError("Invalid ID");
-                }
-                Entity table = Entity.objects(mContext).get(id);
-                if (table != null) {
-                    table.setEntityName(entity);
-                    table.setValue(mJson.toJson(entityDatas));
-                    table.save(mContext);
-
-                    EventData eventData = new EventData();
-                    eventData.setRowId(table.getId() + "");
-                    eventData.setData(entityDatas);
-
-                    ArrayList<EventData> eventDataList = new ArrayList<>();
-                    eventDataList.add(eventData);
-
-                    return eventSuccess(EVENT_NAME_UPDATE, eventDataList);
-                }
-                else {
-                    return eventError("Invalid ID");
-                }
+                return eventError("No such Entity Found");
             }
         }
+        return eventError("No Match Found");
     }
 
-    private static String deleteRecord(String entity, String data) {
+    public static String deleteRecord(String entity, String data) {
         if(data == null || TextUtils.isEmpty(data)){
             Filter filter = new Filter();
             filter.is(Entity.COLUMN_TABLE_NAME, entity);
@@ -315,88 +361,124 @@ public class LocalEntityService {
                     .filter(filter).toList();
 
             if(entities.size() > 0) {
-                ArrayList<EventData> eventDataList = new ArrayList<>();
+                JSONObject output = new JSONObject();
+                JSONArray dataList = new JSONArray();
                 for (int i = 0; i < entities.size(); i++) {
                     String dataStr = entities.get(i).getValue();
-
-                    Data dataObj = mJson.fromJson(dataStr, Data.class);
-                    ArrayList<EntityData> entityDatas = dataObj.getData();
-
-                    EventData eventData = new EventData();
-                    eventData.setRowId(entities.get(i).getId() + "");
-                    eventData.setData(entityDatas);
-
-                    eventDataList.add(eventData);
-
+                    dataList.put(dataStr);
                     entities.get(i).delete(mContext);
                 }
-
-                return eventSuccess(EVENT_NAME_DELETE, eventDataList);
+                try {
+                    output.put(NAME_EVENT_NAME, VALUE_DELETED);
+                    output.put(NAME_EVENT_DATA, dataList);
+                    return output.toString();
+                }
+                catch (JSONException e) {
+                    e.printStackTrace();
+                    return eventError("JSON Error");
+                }
             }
             else {
                 return eventError("No Such Entity Found");
             }
         }
         else {
-            int id;
-            Data d = mJson.fromJson(data, Data.class);
-            ArrayList<EntityData> entityDatas = d.getData();
-            String mId = null;
-            for (EntityData entityData: entityDatas){
-                if(entityData.getName().equals(Entity.COLUMN_ID)){
-                    mId = entityData.getValue();
-                    break;
-                }
+            JSONObject object;
+            try {
+                object = new JSONObject(data);
             }
-            if(mId == null || TextUtils.isEmpty(mId)){
-                //Error no Id
-                return eventError("ID Not Found");
+            catch (JSONException e) {
+                e.printStackTrace();
+                return eventError("Invalid Data Value");
             }
-            else {
-                try {
-                    id = Integer.parseInt(mId);
-                }catch (Exception e){
-                    //Error fake id
-                    return eventError("Invalid ID");
-                }
-                Entity table = Entity.objects(mContext).get(id);
-                if(table != null) {
-                    if (table.delete(mContext)) {
-                        //success
-
-                        EventData eventData = new EventData();
-                        eventData.setRowId(id + "");
-                        eventData.setData(entityDatas);
-
-                        ArrayList<EventData> eventDataList = new ArrayList<>();
-                        eventDataList.add(eventData);
-
-                        return eventSuccess(EVENT_NAME_DELETE, eventDataList);
-                    } else {
-                        //Error sql
-                        return eventError("SQL Error");
+            String id;
+            try {
+                id= object.getString(Entity.COLUMN_ID);
+            }
+            catch (JSONException e) {
+                e.printStackTrace();
+                return eventError("Invalid ID");
+            }
+            Filter filter = new Filter();
+            filter.is(Entity.COLUMN_TABLE_NAME, entity);
+            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
+                    .filter(filter).toList();
+            if (entities.size() > 0) {
+                for (int i=0; i<entities.size(); i++) {
+                    Entity table = entities.get(i);
+                    JSONObject jsonObject = null;
+                    try {
+                        jsonObject = new JSONObject(table.getValue());
+                    }
+                    catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                    String mId = null;
+                    if (jsonObject != null) {
+                        mId = jsonObject.optString(Entity.COLUMN_ID);
+                    }
+                    if (mId != null) {
+                        if(mId.equals(id)){
+                            JSONObject obj;
+                            try {
+                                obj = new JSONObject(table.getValue());
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                                return eventError("JSON Error");
+                            }
+                            table.delete(mContext);
+                            return eventSuccess(VALUE_DELETED, obj.toString());
+                        }
                     }
                 }
-                else {
-                    return eventError("Invalid ID");
-                }
+            }
+            else {
+                return eventError("No such Entity Found");
             }
         }
+        return eventError("No Match Found");
     }
 
     private static String eventError(String reason) {
-        Output output = new Output();
-        output.setEventName(EVENT_NAME_ERROR);
-        output.setEventType(STATUS_FAILURE);
-        output.setReason(reason);
-        return mJson.toJson(output);
+        JSONObject out = new JSONObject();
+        try {
+            out.put(NAME_EVENT_NAME, EVENT_NAME_ERROR);
+            out.put(NAME_REASON, reason);
+            return out.toString();
+        }
+        catch (JSONException e) {
+            e.printStackTrace();
+            return null;
+        }
     }
 
-    private static String eventSuccess(String eventName, ArrayList<EventData> eventDataList) {
-        Output output = new Output();
-        output.setEventName(eventName);
-        output.setEventType(STATUS_SUCCESS);
-        output.setEventData(eventDataList);
-        return mJson.toJson(output);
+    private static String eventSuccess(String eventName, String data) {
+        JSONObject output = new JSONObject();
+        try {
+            output.put(NAME_EVENT_NAME, eventName);
+            output.put(NAME_EVENT_DATA, data);
+            return output.toString();
+        }
+        catch (JSONException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /*
+    * Check for network connection availability
+    */
+    private boolean isNetworkAvailable(){
+        ConnectivityManager connectivityManager = (ConnectivityManager)
+                getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo networkInfo = connectivityManager.getActiveNetworkInfo();
+        return networkInfo != null && networkInfo.isConnected();
+    }
+
+    private void sendMessage(String message) {
+        Intent intent = new Intent("local");
+        // add data
+        intent.putExtra("message", message);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
 }

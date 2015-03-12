@@ -6,19 +6,15 @@ import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.support.v4.content.LocalBroadcastManager;
-import android.util.Log;
 import android.widget.Toast;
 
+import com.koushikdutta.ion.Ion;
 import com.orm.androrm.Filter;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import database.ClientFlows;
 import database.EntityFlows;
@@ -404,48 +400,17 @@ public class FlowSyncService extends IntentService {
     */
     private String downloadFlowsAsString(String url) throws IOException{
         String contentAsString = null;
-        InputStream inputStream = null;
-        try{
-            URL webUrl = new URL(url);
-            HttpURLConnection conn = (HttpURLConnection) webUrl.openConnection();
-            conn.setReadTimeout(NET_READ_TIMEOUT_MILLIS /* milliseconds */);
-            conn.setConnectTimeout(NET_CONNECT_TIMEOUT_MILLIS /* milliseconds */);
-            conn.setRequestMethod("GET");
-            conn.setDoInput(true);
-            // Starts the query
-            conn.connect();
-            int response = conn.getResponseCode();
-            Log.d(TAG, "The response is: " + response);
-            if(response == HttpURLConnection.HTTP_OK) {
-                inputStream = conn.getInputStream();
-
-                // Convert the InputStream into a string
-                contentAsString = readIt(inputStream);
-            }
-            return contentAsString;
-
-            // Makes sure that the InputStream is closed after the app is
-            // finished using it.
-        } finally {
-            if (inputStream != null) {
-                inputStream.close();
-            }
+        try {
+            contentAsString = Ion.with(this).load("GET", url)
+                    .asString().get();
         }
-    }
-
-    /*
-    * Reads an InputStream and converts it to a String.
-    */
-    public String readIt(InputStream stream) throws IOException {
-        BufferedInputStream bis = new BufferedInputStream(stream);
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        int result = bis.read();
-        while(result != -1) {
-            byte b = (byte)result;
-            buf.write(b);
-            result = bis.read();
+        catch (InterruptedException e) {
+            e.printStackTrace();
         }
-        return buf.toString();
+        catch (ExecutionException e) {
+            e.printStackTrace();
+        }
+        return contentAsString;
     }
 
     private void sendMessage(int no) {

@@ -18,9 +18,11 @@ import android.view.MenuItem;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.google.gson.Gson;
 import com.orm.androrm.DatabaseAdapter;
 import com.orm.androrm.Model;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -38,9 +40,6 @@ import database.Entity;
 import database.EntityFlows;
 import database.Function;
 import database.Link;
-import json.Data;
-import json.EntityData;
-import json.Instruction;
 
 
 public class MainActivity extends ActionBarActivity {
@@ -60,35 +59,34 @@ public class MainActivity extends ActionBarActivity {
 
         syncDB();
 
+        ContactSyncService.startContactSync(this, getContact());
+
 //        startFlowDownloadService();
 //        startAlarmService(this, 1000 * 60 * 60 * 24);
 
+        JSONObject ins = new JSONObject();
+        try {
+            ins.put("type", LocalEntityService.TYPE_SERVER);
+            ins.put("operation", LocalEntityService.OPERATION_CREATE);
+            ins.put("entity", "supplier");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        JSONObject obj = new JSONObject();
+        try {
+            obj.put("firstname", "emeka");
+            obj.put("address", "Sabo Yaba");
+            obj.put(Entity.COLUMN_ID, "A1");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        String inst = ins.toString(), data = obj.toString();
+
+        LocalEntityService.startLocalEntityService(this, inst, data);
+
         copyDBToSDCard();
-
-        Instruction in = new Instruction();
-        in.setType(LocalEntityService.TYPE_LOCAL);
-        in.setOperation(LocalEntityService.OPERATION_CREATE);
-        in.setEntity("Customer");
-
-        EntityData entityData = new EntityData();
-        entityData.setName("firstname");
-        entityData.setValue("emmanuel");
-        EntityData entityData1 = new EntityData();
-        entityData1.setName("address");
-        entityData1.setValue("Lokoja");
-
-        ArrayList<EntityData> datas = new ArrayList<EntityData>();
-        datas.add(entityData);
-        datas.add(entityData1);
-
-        Data d = new Data();
-        d.setData(datas);
-
-        Gson json = new Gson();
-        String ins = json.toJson(in), data = json.toJson(d);
-
-        String name = LocalEntityService.localEntityService(this, ins, data);
-        Log.e(TAG, name);
     }
 
     @Override
@@ -97,6 +95,8 @@ public class MainActivity extends ActionBarActivity {
         // Register mMessageReceiver to receive messages.
         LocalBroadcastManager.getInstance(this).registerReceiver(mMessageReceiver,
                 new IntentFilter("my-event"));
+        LocalBroadcastManager.getInstance(this).registerReceiver(mLocalReceiver,
+                new IntentFilter("local"));
     }
 
     @Override
@@ -141,6 +141,17 @@ public class MainActivity extends ActionBarActivity {
             if(message == 3)
                 mHello3.setText(message+"");
             Log.d("receiver", "Got message: " + message+"");
+        }
+    };
+
+    // handler for received Intents for the "local" event
+    private BroadcastReceiver mLocalReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // Extract data included in the Intent
+            String message = intent.getStringExtra("message");
+            mHello3.setText(message);
+            Log.d(TAG, message);
         }
     };
 
