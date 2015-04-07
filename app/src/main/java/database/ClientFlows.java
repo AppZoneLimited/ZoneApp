@@ -3,52 +3,74 @@ package database;
 import android.content.Context;
 
 import com.orm.androrm.CharField;
-import com.orm.androrm.ForeignKeyField;
+import com.orm.androrm.Filter;
 import com.orm.androrm.Model;
 import com.orm.androrm.QuerySet;
+
+import java.util.ArrayList;
 
 /**
  * Created by emacodos on 2/18/2015.
  */
 public class ClientFlows extends Model {
 
-    protected CharField flows;
-    protected ForeignKeyField<Function> functionID;
-    protected ForeignKeyField<Link> linkID;
+    public static final String COLUMN_ID = "Id";
+
+    protected CharField FlowsID;
+    protected CharField Flows;
 
     public ClientFlows(){
         super();
 
-        flows = new CharField();
-        functionID = new ForeignKeyField<Function>(Function.class);
-        linkID = new ForeignKeyField<Link>(Link.class);
+        Flows = new CharField();
+        FlowsID = new CharField();
     }
 
     public static final QuerySet<ClientFlows> objects(Context context) {
         return objects(context, ClientFlows.class);
     }
 
-    public String getClientFlow() {
-        return flows.get();
+    public String getFlowsID() {
+        return FlowsID.get();
     }
 
-    public void setClientFlow(String content) {
-        flows.set(content);
+    public void setFlowsID(String flowsID) {
+        FlowsID.set(flowsID);
     }
 
-    public Function getFunction(Context context) {
-        return functionID.get(context);
+    public String getFlows() {
+        return Flows.get();
     }
 
-    public void setFunction(Function function) {
-        functionID.set(function);
+    public void setFlows(String content) {
+        Flows.set(content);
     }
 
-    public Link getLink(Context context) {
-        return linkID.get(context);
+    public static ClientFlows getFlowById(Context context, String id){
+        Filter filter = new Filter();
+        filter.is("FlowsID", id);
+        ArrayList<ClientFlows> flowses = (ArrayList<ClientFlows>) ClientFlows.objects(context).filter(filter).toList();
+        if (flowses.size() > 0){
+            return flowses.get(0);
+        }
+        else {
+            return null;
+        }
     }
 
-    public void setLink(Link link) {
-        linkID.set(link);
+    public static ArrayList<ClientFlows> getAllFlows(Context context){
+        return (ArrayList<ClientFlows>) ClientFlows.objects(context).all().toList();
+    }
+
+    public static String getFlowByIdAsString(Context context, String id){
+        Filter filter = new Filter();
+        filter.is("FlowsID", id);
+        ArrayList<ClientFlows> flowses = (ArrayList<ClientFlows>) ClientFlows.objects(context).filter(filter).toList();
+        if (flowses.size() > 0){
+            return flowses.get(0).getFlows();
+        }
+        else {
+            return null;
+        }
     }
 }

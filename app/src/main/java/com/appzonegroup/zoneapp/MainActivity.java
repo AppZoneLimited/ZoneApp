@@ -37,9 +37,8 @@ import java.util.List;
 import database.ClientFlows;
 import database.Contact;
 import database.Entity;
-import database.EntityFlows;
 import database.Function;
-import database.Link;
+import database.FunctionCategory;
 
 
 public class MainActivity extends ActionBarActivity {
@@ -59,33 +58,36 @@ public class MainActivity extends ActionBarActivity {
 
         syncDB();
 
-        ContactSyncService.startContactSync(this, getContact());
+        //ContactSyncService.startContactSync(this, getContact());
 
 //        startFlowDownloadService();
 //        startAlarmService(this, 1000 * 60 * 60 * 24);
 
         JSONObject ins = new JSONObject();
         try {
-            ins.put("type", LocalEntityService.TYPE_SERVER);
+            ins.put("type", LocalEntityService.TYPE_LOCAL);
             ins.put("operation", LocalEntityService.OPERATION_CREATE);
-            ins.put("entity", "supplier");
+            ins.put("entity", "Bank");
         } catch (JSONException e) {
             e.printStackTrace();
         }
 
         JSONObject obj = new JSONObject();
         try {
-            obj.put("firstname", "emeka");
-            obj.put("address", "Sabo Yaba");
-            obj.put(Entity.COLUMN_ID, "A1");
+            obj.put("Id", 1001);
+            obj.put("Name", "Diamond");
+            obj.put("Code", "101");
+            obj.put("Address", "34 yaba road");
+            obj.put("BIN", "500876");
         } catch (JSONException e) {
             e.printStackTrace();
         }
 
         String inst = ins.toString(), data = obj.toString();
-
-        LocalEntityService.startLocalEntityService(this, inst, data);
-
+        Function f = Function.getFunctionById(this, 11);
+        FlowSyncService.startActionDownloadEntities(this, f.getFlowGuid());
+//      LocalEntityService.startLocalEntityService(this, inst, data);
+//        ContactSyncService.startContactSync(this);
         copyDBToSDCard();
     }
 
@@ -96,7 +98,7 @@ public class MainActivity extends ActionBarActivity {
         LocalBroadcastManager.getInstance(this).registerReceiver(mMessageReceiver,
                 new IntentFilter("my-event"));
         LocalBroadcastManager.getInstance(this).registerReceiver(mLocalReceiver,
-                new IntentFilter("local"));
+                new IntentFilter(LocalEntityService.INTENT_LOCAL));
     }
 
     @Override
@@ -134,12 +136,7 @@ public class MainActivity extends ActionBarActivity {
         public void onReceive(Context context, Intent intent) {
             // Extract data included in the Intent
             int message = intent.getIntExtra("message", 0);
-            if(message == 1)
-            mHello1.setText(message+"");
-            if(message == 2)
                 mHello2.setText(message+"");
-            if(message == 3)
-                mHello3.setText(message+"");
             Log.d("receiver", "Got message: " + message+"");
         }
     };
@@ -151,16 +148,15 @@ public class MainActivity extends ActionBarActivity {
             // Extract data included in the Intent
             String message = intent.getStringExtra("message");
             mHello3.setText(message);
-            Log.d(TAG, message);
+            Log.e(TAG, message);
         }
     };
 
     private void syncDB() {
         List<Class<? extends Model>> models = new ArrayList<Class<? extends Model>>();
         models.add(Function.class);
+        models.add(FunctionCategory.class);
         models.add(ClientFlows.class);
-        models.add(EntityFlows.class);
-        models.add(Link.class);
         models.add(Entity.class);
         models.add(Contact.class);
 
@@ -174,7 +170,7 @@ public class MainActivity extends ActionBarActivity {
         if(isNetworkAvailable()) {
             // Network is available
             FlowSyncService.startActionSync(this);
-            ContactSyncService.startContactSync(this, getContact());
+            ContactSyncService.startContactSync(this);
         }
         else {
             //No Internet Connection
@@ -182,21 +178,6 @@ public class MainActivity extends ActionBarActivity {
             Toast.makeText(this, "No Internet Access"
                     , Toast.LENGTH_LONG).show();
         }
-    }
-
-    public static Bundle getContact(){
-        Bundle contact = new Bundle();
-
-        ArrayList<String> names = new ArrayList<String>();
-        names.add("Emma");
-        names.add("Esther");
-        ArrayList<String> numbers = new ArrayList<String>();
-        numbers.add("07030324132");
-        numbers.add("07003021346");
-        contact.putStringArrayList(ContactSyncService.PARAM_CONTACT_NAMES, names);
-        contact.putStringArrayList(ContactSyncService.PARAM_CONTACT_NUMBERS, numbers);
-
-        return contact;
     }
 
     private void startAlarmService(Context context, int interval){

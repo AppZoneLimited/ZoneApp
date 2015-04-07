@@ -4,62 +4,97 @@ import android.content.Context;
 
 import com.orm.androrm.BooleanField;
 import com.orm.androrm.CharField;
+import com.orm.androrm.Filter;
 import com.orm.androrm.IntegerField;
 import com.orm.androrm.Model;
-import com.orm.androrm.OneToManyField;
 import com.orm.androrm.QuerySet;
+
+import org.json.JSONArray;
+
+import java.util.ArrayList;
 
 /**
  * Created by emacodos on 2/18/2015.
  */
 public class Function extends Model {
 
-    protected CharField ID;
+    public static final String COLUMN_ID = "Id";
+    public static final String COLUMN_VERSION_NUMBER = "VersionNumber";
+    public static final String COLUMN_NAME = "Name";
+    public static final String COLUMN_DESCRIPTION = "Description";
+    public static final String COLUMN_FLOWGUID = "FlowGuid";
+    public static final String COLUMN_CATEGORY_ID = "Category";
+
+    protected CharField Value;
+    protected CharField VersionNumber;
     protected CharField Name;
-    protected IntegerField version;
+    protected CharField Description;
+    protected CharField FlowGuid;
+    protected IntegerField CategoryID;
     protected BooleanField success;
-    protected OneToManyField<Function, Link> link;
-    protected OneToManyField<Function, ClientFlows> clientFlows;
-    protected OneToManyField<Function, EntityFlows> entityFlows;
 
     public Function(){
-        super();
+        super(true);
 
-        ID = new CharField();
+        Value = new CharField();
+        VersionNumber = new CharField();
         Name = new CharField();
-        version = new IntegerField();
+        Description = new CharField();
+        FlowGuid = new CharField();
+        CategoryID = new IntegerField();
         success = new BooleanField();
-        link = new OneToManyField<Function, Link>(Function.class, Link.class);
-        clientFlows = new OneToManyField<Function, ClientFlows>(Function.class, ClientFlows.class);
-        entityFlows = new OneToManyField<Function, EntityFlows>(Function.class, EntityFlows.class);
     }
 
     public static final QuerySet<Function> objects(Context context) {
         return objects(context, Function.class);
     }
 
-    public String getFunctionId() {
-        return ID.get();
+    public String getValue() {
+        return Value.get();
     }
 
-    public void setFunctionId(String functionId) {
-        ID.set(functionId);
+    public void setValue(String value) {
+        Value.set(value);
     }
 
-    public String getFunctionName() {
+    public String getVersionNumber() {
+        return VersionNumber.get();
+    }
+
+    public void setVersionNumber(String versionNo) {
+        VersionNumber.set(versionNo);
+    }
+
+    public String getName() {
         return Name.get();
     }
 
-    public void setFunctionName(String customerName) {
+    public void setName(String customerName) {
         Name.set(customerName);
     }
 
-    public int getVersion() {
-        return version.get();
+    public String getDescription() {
+        return Description.get();
     }
 
-    public void setVersion(int versionNo) {
-        version.set(versionNo);
+    public void setDescription(String description) {
+        Description.set(description);
+    }
+
+    public String getFlowGuid() {
+        return FlowGuid.get();
+    }
+
+    public void setFlowGuid(String flowGuid) {
+        FlowGuid.set(flowGuid);
+    }
+
+    public Integer getCategoryID() {
+        return CategoryID.get();
+    }
+
+    public void setCategoryID(Integer categoryID) {
+        CategoryID.set(categoryID);
     }
 
     public Boolean isSuccess() {
@@ -70,27 +105,39 @@ public class Function extends Model {
         success.set(state);
     }
 
-    public QuerySet<Link> getLinks(Context context) {
-        return link.get(context, this);
+    public static ArrayList<Function> getAllFunctions(Context context) {
+        return (ArrayList<Function>) Function.objects(context).all().toList();
     }
 
-    public void setLink(Link link1) {
-        link.add(link1);
+    public static Function getFunctionById(Context context, int id) {
+        return Function.objects(context).get(id);
     }
 
-    public QuerySet<ClientFlows> getClientFlows(Context context) {
-        return clientFlows.get(context, this);
+    public static String getFunctionByIdAsString(Context context, int id) {
+        return Function.objects(context).get(id).getValue();
     }
 
-    public void setClientFlows(ClientFlows flows) {
-        clientFlows.add(flows);
+    public static Function getFunctionByFlowId(Context context, String flowId) {
+        Filter filter = new Filter();
+        filter.is("FlowGuid", flowId);
+        ArrayList<Function> functions = (ArrayList<Function>) Function.objects(context)
+                .filter(filter).toList();
+        if (functions.size() > 0) {
+            return functions.get(0);
+        }
+        else return null;
     }
 
-    public QuerySet<EntityFlows> getEntityFlows(Context context) {
-        return entityFlows.get(context, this);
-    }
-
-    public void setEntityFlows(EntityFlows flows) {
-        entityFlows.add(flows);
+    public static String getAllFunctionsAsString(Context context) {
+        ArrayList<Function> functions = (ArrayList<Function>) Function.objects(context).all().toList();
+        JSONArray array = null;
+        if (functions.size() > 0){
+            array = new JSONArray();
+            for (int i=0; i<functions.size(); i++) {
+                array.put(functions.get(i).getValue());
+            }
+            return array.toString();
+        }
+        return null;
     }
 }

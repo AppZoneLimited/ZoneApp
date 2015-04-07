@@ -24,5 +24,6 @@ dependencies {
     compile 'com.android.support:appcompat-v7:21.0.3'
     compile files('libs/commons-lang3-3.0.1.jar')
     compile files('libs/androrm.jar')
-    compile 'com.koushikdutta.ion:ion:2.+'
+    compile 'com.koushikdutta.ion:ion:2.0.2'
+    compile files('libs/zoneorchestra.jar')
 }

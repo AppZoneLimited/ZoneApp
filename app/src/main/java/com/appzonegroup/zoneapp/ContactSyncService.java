@@ -7,15 +7,20 @@ import android.database.Cursor;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
-import android.os.Bundle;
 import android.provider.ContactsContract;
-import android.support.v4.content.LocalBroadcastManager;
+import android.util.Log;
 
-import org.apache.http.NameValuePair;
-import org.apache.http.message.BasicNameValuePair;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.koushikdutta.ion.Ion;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.List;
 
 import database.Contact;
 
@@ -32,17 +37,18 @@ public class ContactSyncService extends IntentService {
 
     public static final String TAG = ContactSyncService.class.getSimpleName();
 
-    public static final String PARAM_CONTACT_NAMES = "comm.appzonegroup.zoneapp.CONTACTS_NAMES";
-    public static final String PARAM_CONTACT_NUMBERS = "comm.appzonegroup.zoneapp.CONTACTS_NUMBERS";
-    public static final String PARAM_CONTACTS = "comm.appzonegroup.zoneapp.CONTACTS";
+    public static final String NAME_PHONE_NUMBERS = "PhoneNumbers";
+
+    public static final String URL_CONTACT = "http://192.168.2.213:11984/api/Account/GetRegisteredContacts/";
+
+    private Object mContactGroup = new Object();
 
     public ContactSyncService() {
         super("ContactSyncService");
     }
 
-    public static void startContactSync(Context context, Bundle contacts) {
+    public static void startContactSync(Context context) {
         Intent intent = new Intent(context, ContactSyncService.class);
-        intent.putExtra(PARAM_CONTACTS, contacts);
         context.startService(intent);
     }
 
@@ -52,7 +58,6 @@ public class ContactSyncService extends IntentService {
         if (isNetworkAvailable()) {
             ArrayList<String> contactNames = new ArrayList<>();
             ArrayList<String> contactNumbers = new ArrayList<>();
-            List<NameValuePair> nameValuePair = new ArrayList<NameValuePair>();
 
             Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
             String[] projection = new String[] {ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
@@ -71,42 +76,86 @@ public class ContactSyncService extends IntentService {
                 // Do work...
                 contactNames.add(name);
                 contactNumbers.add(number);
-                nameValuePair.add(new BasicNameValuePair("name", name));
-                nameValuePair.add(new BasicNameValuePair("phone", number));
             } while (people.moveToNext());
 
-            ArrayList<String> contactNumberList = new ArrayList<String>();
-            ArrayList<String> contactNameList = new ArrayList<String>();
-
+            JSONObject json = new JSONObject();
+            JSONArray array = new JSONArray();
             for (int i = 0; i < contactNumbers.size(); i++) {
-                if (isZoneContact(contactNumbers.get(i))) {
-                    contactNumberList.add(contactNumbers.get(i));
-                    contactNameList.add(contactNames.get(i));
-                }
+                array.put(contactNumbers.get(i));
             }
+            try {
+                json.put(NAME_PHONE_NUMBERS, array);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            String contactStr = getZoneContact(json.toString());
 
-            if (contactNumberList.size() > 0) {
-                // Delete All Contacts in db
-                List<Contact> oldContact = Contact.objects(this).all().toList();
-                for (int i = 0; i < oldContact.size(); i++) {
-                    oldContact.get(i).delete(this);
+            if (contactStr != null) {
+                try {
+                    JSONArray jsonArray = new JSONArray(contactStr);
+
+                    // Delete All Contacts in db
+                    ArrayList<Contact> oldContact = Contact.getAllContact(this);
+                    for (int i = 0; i < oldContact.size(); i++) {
+                        oldContact.get(i).delete(this);
+                    }
+
+                    for (int i=0; i<jsonArray.length(); i++){
+                        String name = null, number;
+                        number = (String) jsonArray.get(i);
+                        for (int j=0; j<contactNumbers.size(); j++){
+                            if (contactNumbers.get(j).equals(number)){
+                                name = contactNames.get(j);
+                                break;
+                            }
+                        }
+                        // Add new Contact
+                        Contact contact = new Contact();
+                        contact.setName(name);
+                        contact.setNumber(number);
+                        contact.save(this);
+                    }
                 }
-                // Add new Contact
-                for (int i = 0; i < contactNumberList.size(); i++) {
-                    Contact contact = new Contact();
-                    contact.setName(contactNameList.get(i));
-                    contact.setNumber(contactNumberList.get(i));
-                    contact.save(this, i);
+                catch (JSONException e) {
+                    e.printStackTrace();
                 }
             }
-        } else {
-            //No Internet Available
         }
     }
 
-    private boolean isZoneContact(String contact) {
+    private String getZoneContact(String contact) {
         //This method connects to the internet to verify a contact
-        return true;
+        String output = null;
+        if (isNetworkAvailable()) {
+            JsonObject json = new JsonParser().parse(contact).getAsJsonObject();
+            try {
+                output = Ion.with(this)
+                        .load("GET", URL_CONTACT)
+                        .setJsonObjectBody(json)
+                        .group(mContactGroup)
+                        .asString()
+                        .get();
+            }
+            catch (Exception e) {
+                e.printStackTrace();
+                Log.e("err_contact_url", e.getMessage());
+            }
+            if (output != null)
+                Log.e(TAG+"/Output", output);
+            return output;
+        }
+        else {
+            try {
+                setMobileDataEnabled(this, true);
+                if(isNetworkAvailable())
+                    return getZoneContact(contact);
+            }
+            catch (Exception e) {
+                e.printStackTrace();
+                Log.e("err_enable_network", e.getMessage());
+            }
+        }
+        return null;
     }
 
     /*
@@ -119,10 +168,16 @@ public class ContactSyncService extends IntentService {
         return networkInfo != null && networkInfo.isConnected();
     }
 
-    private void sendMessage(String message) {
-        Intent intent = new Intent("my-event");
-        // add data
-        intent.putExtra("message", message);
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    private void setMobileDataEnabled(Context context, boolean enabled) throws Exception {
+        final ConnectivityManager conman = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        final Class conmanClass = Class.forName(conman.getClass().getName());
+        final Field iConnectivityManagerField = conmanClass.getDeclaredField("mService");
+        iConnectivityManagerField.setAccessible(true);
+        final Object iConnectivityManager = iConnectivityManagerField.get(conman);
+        final Class iConnectivityManagerClass = Class.forName(iConnectivityManager.getClass().getName());
+        final Method setMobileDataEnabledMethod = iConnectivityManagerClass.getDeclaredMethod("setMobileDataEnabled", Boolean.TYPE);
+        setMobileDataEnabledMethod.setAccessible(true);
+
+        setMobileDataEnabledMethod.invoke(iConnectivityManager, enabled);
     }
 }

@@ -9,14 +9,16 @@ import android.support.v4.content.LocalBroadcastManager;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.koushikdutta.async.future.FutureCallback;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.koushikdutta.ion.Ion;
-import com.orm.androrm.Filter;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 
 import database.Entity;
@@ -56,25 +58,35 @@ public class LocalEntityService extends IntentService{
     public static final String NAME_TYPE = "type";
     public static final String NAME_OPERATION = "operation";
     public static final String NAME_ENTITY = "entity";
-    public static final String NAME_EVENT_NAME = "eventName";
-    public static final String NAME_EVENT_DATA = "eventData";
-    public static final String NAME_REASON = "reason";
+    public static final String NAME_EVENT_NAME = "EventName";
+    public static final String NAME_EVENT_DATA = "EventData";
+    public static final String NAME_REASON = "Reason";
 
     public static final String VALUE_CREATED = "Entity Created";
     public static final String VALUE_UPDATED = "Entity Updated";
     public static final String VALUE_RETRIEVED = "Entity Retrieved";
     public static final String VALUE_DELETED = "Entity Deleted";
+    public static final String VALUE_UPLOADED = "Entity Uploaded";
 
-    public static final String EVENT_NAME_ERROR = "Entity Operation Failed";
+    public static final String VALUE_ERROR = "Entity Operation Failed";
 
     public static final String TYPE_SERVER = "server";
     public static final String TYPE_LOCAL = "local";
 
-    public static final String URL_ENTITY = "http://localhost/etrademanager";
+    public static final String URL_ENTITY = "http://192.168.2.182:8030/api/entitydataservice/performcrud";
+
+    public static final String INTENT_LOCAL = "local";
+    public static final String EXTRA_MESSAGE = "message";
 
     private static Context mContext;
-    private Object mEntityGroup = new Object();
-    private String mOutput;
+    public static Object mEntityGroup = new Object();
+
+    public static void startLocalEntityService(Context context, String instruction, String data) {
+        Intent intent = new Intent(context, LocalEntityService.class);
+        intent.putExtra(PARAM_INSTRUCTION, instruction);
+        intent.putExtra(PARAM_DATA, data);
+        context.startService(intent);
+    }
 
     public LocalEntityService(){
         super("LocalEntityService");
@@ -94,13 +106,6 @@ public class LocalEntityService extends IntentService{
             String message = localEntityService(this, inst, dat);
             sendMessage(message);
         }
-    }
-
-    public static void startLocalEntityService(Context context, String instruction, String data) {
-        Intent intent = new Intent(context, LocalEntityService.class);
-        intent.putExtra(PARAM_INSTRUCTION, instruction);
-        intent.putExtra(PARAM_DATA, data);
-        context.startService(intent);
     }
 
     public String localEntityService(Context context, String instruction, String data){
@@ -157,41 +162,59 @@ public class LocalEntityService extends IntentService{
         }
     }
 
-
     public String doServerOperation(String instruction, String data) {
+
+        Ion.getDefault(this).configure().setLogging("MyLogs", Log.ERROR);
+
         if(instruction == null || TextUtils.isEmpty(instruction)){
             return eventError("Null Instruction Value");
         }
-        else if(data == null || TextUtils.isEmpty(data)){
-            return eventError("Null data Value");
-        }
         else {
             if (isNetworkAvailable()) {
-                Ion.with(mContext)
+                JsonObject dataObj;
+                if(data == null || TextUtils.isEmpty(data.trim())) {
+                    dataObj = null;
+                }
+                else {
+                    dataObj = new JsonParser().parse(data).getAsJsonObject();
+                }
+                JsonObject insObj = new JsonParser().parse(instruction).getAsJsonObject();
+                JsonObject json = new JsonObject();
+                json.add(PARAM_INSTRUCTION, insObj);
+                json.add(PARAM_DATA, dataObj);
+
+                String mOutput;
+                try {
+                mOutput = Ion.with(mContext)
                         .load("POST", URL_ENTITY)
-                        .setBodyParameter(PARAM_INSTRUCTION, instruction)
-                        .setBodyParameter(PARAM_DATA, data)
+                        .setJsonObjectBody(json)
                         .group(mEntityGroup)
                         .asString()
-                        .setCallback(new FutureCallback<String>() {
-                            @Override
-                            public void onCompleted(Exception e, String result) {
-                                if (e != null) {
-                                    //success
-                                    mOutput = result;
-                                } else {
-                                    //failure
-                                    mOutput = eventError("Network Exception");
-                                }
-                            }
-                        });
-                if (mOutput != null)
+                        .get();
+            }
+            catch (Exception e) {
+                e.printStackTrace();
+                mOutput = eventError("Connection Timed Out");
+            }
+                if (mOutput != null) {
+                    Log.e("data", mOutput);
                     return mOutput;
+                }
                 else
                     return eventError("Cannot Connect to the Url");
             }
             else {
-                return eventError("Internet Unavailable");
+                try {
+                    setMobileDataEnabled(mContext, true);
+                    if(isNetworkAvailable())
+                        return doServerOperation(instruction, data);
+                    else
+                        return eventError("Internet Unavailable");
+                }
+                catch (Exception e) {
+                    e.printStackTrace();
+                    return eventError("Internet Unavailable");
+                }
             }
         }
     }
@@ -217,12 +240,8 @@ public class LocalEntityService extends IntentService{
     }
 
     public static String queryDB(String entity, String data) {
+        ArrayList<Entity> entities = Entity.getAllEntityByName(mContext, entity);
         if(data == null) {
-            Filter filter = new Filter();
-            filter.is(Entity.COLUMN_TABLE_NAME, entity);
-            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
-                    .filter(filter).toList();
-
             if (entities.size() > 0) {
                 JSONObject output = new JSONObject();
                 JSONArray dataList = new JSONArray();
@@ -258,18 +277,13 @@ public class LocalEntityService extends IntentService{
                 e.printStackTrace();
                 return eventError("Invalid ID");
             }
-            Filter filter = new Filter();
-            filter.is(Entity.COLUMN_TABLE_NAME, entity);
-            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
-                    .filter(filter).toList();
             if (entities.size() > 0) {
                 for (int i=0; i<entities.size(); i++) {
                     Entity table = entities.get(i);
                     JSONObject jsonObject = null;
                     try {
                         jsonObject = new JSONObject(table.getValue());
-                    }
-                    catch (JSONException e) {
+                    } catch (JSONException e) {
                         e.printStackTrace();
                     }
                     String mId = null;
@@ -277,7 +291,7 @@ public class LocalEntityService extends IntentService{
                         mId = jsonObject.optString(Entity.COLUMN_ID);
                     }
                     if (mId != null) {
-                        if(mId.equals(id)){
+                        if (mId.equals(id)) {
                             JSONObject obj;
                             try {
                                 obj = new JSONObject(table.getValue());
@@ -318,10 +332,7 @@ public class LocalEntityService extends IntentService{
                 e.printStackTrace();
                 return eventError("Invalid ID");
             }
-            Filter filter = new Filter();
-            filter.is(Entity.COLUMN_TABLE_NAME, entity);
-            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
-                    .filter(filter).toList();
+            ArrayList<Entity> entities = Entity.getAllEntityByName(mContext, entity);
             if (entities.size() > 0) {
                 for (int i=0; i<entities.size(); i++) {
                     Entity table = entities.get(i);
@@ -354,12 +365,9 @@ public class LocalEntityService extends IntentService{
     }
 
     public static String deleteRecord(String entity, String data) {
-        if(data == null || TextUtils.isEmpty(data)){
-            Filter filter = new Filter();
-            filter.is(Entity.COLUMN_TABLE_NAME, entity);
-            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
-                    .filter(filter).toList();
+        ArrayList<Entity> entities = Entity.getAllEntityByName(mContext, entity);
 
+        if(data == null || TextUtils.isEmpty(data)){
             if(entities.size() > 0) {
                 JSONObject output = new JSONObject();
                 JSONArray dataList = new JSONArray();
@@ -399,10 +407,6 @@ public class LocalEntityService extends IntentService{
                 e.printStackTrace();
                 return eventError("Invalid ID");
             }
-            Filter filter = new Filter();
-            filter.is(Entity.COLUMN_TABLE_NAME, entity);
-            ArrayList<Entity> entities = (ArrayList<Entity>) Entity.objects(mContext)
-                    .filter(filter).toList();
             if (entities.size() > 0) {
                 for (int i=0; i<entities.size(); i++) {
                     Entity table = entities.get(i);
@@ -442,7 +446,7 @@ public class LocalEntityService extends IntentService{
     private static String eventError(String reason) {
         JSONObject out = new JSONObject();
         try {
-            out.put(NAME_EVENT_NAME, EVENT_NAME_ERROR);
+            out.put(NAME_EVENT_NAME, VALUE_ERROR);
             out.put(NAME_REASON, reason);
             return out.toString();
         }
@@ -476,9 +480,22 @@ public class LocalEntityService extends IntentService{
     }
 
     private void sendMessage(String message) {
-        Intent intent = new Intent("local");
+        Intent intent = new Intent(INTENT_LOCAL);
         // add data
-        intent.putExtra("message", message);
+        intent.putExtra(EXTRA_MESSAGE, message);
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
+    private void setMobileDataEnabled(Context context, boolean enabled) throws Exception {
+        final ConnectivityManager conman = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        final Class conmanClass = Class.forName(conman.getClass().getName());
+        final Field iConnectivityManagerField = conmanClass.getDeclaredField("mService");
+        iConnectivityManagerField.setAccessible(true);
+        final Object iConnectivityManager = iConnectivityManagerField.get(conman);
+        final Class iConnectivityManagerClass = Class.forName(iConnectivityManager.getClass().getName());
+        final Method setMobileDataEnabledMethod = iConnectivityManagerClass.getDeclaredMethod("setMobileDataEnabled", Boolean.TYPE);
+        setMobileDataEnabledMethod.setAccessible(true);
+
+        setMobileDataEnabledMethod.invoke(iConnectivityManager, enabled);
     }
 }

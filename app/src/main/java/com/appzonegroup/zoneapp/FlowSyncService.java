@@ -1,25 +1,30 @@
 package com.appzonegroup.zoneapp;
 
 import android.app.IntentService;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.support.v4.content.LocalBroadcastManager;
+import android.util.Log;
 import android.widget.Toast;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonParser;
 import com.koushikdutta.ion.Ion;
-import com.orm.androrm.Filter;
 
-import java.io.IOException;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 import database.ClientFlows;
-import database.EntityFlows;
+import database.Entity;
 import database.Function;
-import database.Link;
+import database.FunctionCategory;
 
 /**
  * Created by emacodos on 2/26/2015.
@@ -31,49 +36,20 @@ import database.Link;
  * An {@link IntentService} subclass for handling asynchronous task requests in
  * a service on a separate handler thread.
  *
- *              // ACTION_SYNC //
- *
- * This Service Synchronise data on the local storage with that on the Server using
- * the following steps
- *
- * 1. download current server function list
- * 2. get the local function list
- * 3. Check the functions available in the local but not on the server and add to delete list
- *  a. delete the flows associated with the delete list from the db.
- *  b. delete the links   ""                               ""
- *  c. delete the functions on the delete list from the db
- * 4. Check for new function in the server list and not on the local list and add to new list
- *  a. get the link for the flows associated with the new list and save on the db
- *  b. download the flows and store in db
- *  c. mark flows as success
- *  d. mark function as success.
- * 5. Check for function on the server that has new version and add to update list.
- *  a. get the updated list of functions
- *  b. delete the old flows associated with it in the update list.
- *  c. download the latest flows
- *
  */
 public class FlowSyncService extends IntentService {
 
-    /**
-     * Network connection timeout, in milliseconds.
-     */
-    private static final int NET_CONNECT_TIMEOUT_MILLIS = 15000;  // 15 seconds
-
-    /**
-     * Service class tableName.
-     */
     private static final String TAG = FlowSyncService.class.getSimpleName();
-
-    /**
-     * Network read timeout, in milliseconds.
-     */
-    private static final int NET_READ_TIMEOUT_MILLIS = 10000;  // 10 seconds
 
     // Rename actions, choose action names that describe tasks that this
     // IntentService can perform, e.g. ACTION_FETCH_NEW_ITEMS
-    public static final String ACTION_SYNC = "com.appzonegroup.zoneapp.action.SYNC";
-    public static final String ACTION_CLOUD_MESSAGE = "com.appzonegroup.zoneapp.action.CLOUD.MESSAGE";
+    public static final String ACTION_NEW = "com.zoneapp.action.NEW";
+    public static final String ACTION_SYNC = "com.zoneapp.action.SYNC";
+    public static final String ACTION_CLOUD_MESSAGE = "com.zoneapp.action.CLOUD.MESSAGE";
+    public static final String ACTION_DOWNLOAD_FUNCTION = "com.zoneapp.action.FUNCTION";
+    public static final String ACTION_DOWNLOAD_FUNCTION_CATEGORY = "com.zoneapp.action.CATEGORY";
+    public static final String ACTION_DOWNLOAD_FLOW = "com.zoneapp.action.FLOW";
+    public static final String ACTION_DOWNLOAD_FLOW_ENTITY = "com.zoneapp.action.ENTITY";
 
     /**
      * Starts this service to perform action Download with the given parameters. If
@@ -82,9 +58,34 @@ public class FlowSyncService extends IntentService {
      * @see IntentService
      */
 
-    private static final String PARAM_FUNCTION_ID = "com.appzonegroup.zoneapp.param.PARAM_FUNCTION_ID";
+    private static final String PARAM_ID = "com.zoneapp.param.PARAM_ID";
+    private static final String PARAM_DATA = "com.zoneapp.param.PARAM_DATA";
+    private static final String PARAM_MESSAGE = "com.zoneapp.param.MESSAGE";
+
+    public static final String URL_FUNCTION_CATEGORY = "http://192.168.2.213:11984/api/Function/GetAllFunctionCategories/";
+    public static final String URL_FUNCTION = "http://192.168.2.213:11984/api/Function/GetAll/";
+    public static final String URL_FUNCTION_CATEGORY_ID = "http://192.168.2.213:11984/api/FunctionCategory/Get/";
+    public static final String URL_FUNCTION_ID = "http://192.168.2.213:11984/api/Function/Get/";
+    public static final String URL_ENTITY = "http://192.168.2.213:11984/api/Flow/GetFlowEntities/";
+    public static final String URL_FLOWS = "http://192.168.2.213:11984/api/Flow/Get/";
+    public static final String URL_UPLOAD = "http://192.168.2.182:8030/api/entitydataservice/performupload";
+
+    private static final int ENTITY_PER_BATCH = 2;
+
+    private Object mFlowGroup = new Object();
+    private String entityName;
+
+    private ArrayList<Integer> mFunctions = new ArrayList<>();
+    private ArrayList<String> mFlows = new ArrayList<>();
+    private ArrayList<Integer> mCategory = new ArrayList<>();
 
     // Customize helper method
+
+    public static void startActionNew(Context context) {
+        Intent intent = new Intent(context, FlowSyncService.class);
+        intent.setAction(ACTION_NEW);
+        context.startService(intent);
+    }
 
     public static void startActionSync(Context context) {
         Intent intent = new Intent(context, FlowSyncService.class);
@@ -92,10 +93,36 @@ public class FlowSyncService extends IntentService {
         context.startService(intent);
     }
 
-    public static void startActionCloudMessage(Context context, int function_Id) {
+    public static void startActionCloudMessage(Context context, String data) {
         Intent intent = new Intent(context, FlowSyncService.class);
         intent.setAction(ACTION_CLOUD_MESSAGE);
-        intent.putExtra(PARAM_FUNCTION_ID, function_Id);
+        intent.putExtra(PARAM_DATA, data);
+        context.startService(intent);
+    }
+
+    public static void startActionDownloadFunctions(Context context) {
+        Intent intent = new Intent(context, FlowSyncService.class);
+        intent.setAction(ACTION_DOWNLOAD_FUNCTION);
+        context.startService(intent);
+    }
+
+    public static void startActionDownloadFunctionCategories(Context context) {
+        Intent intent = new Intent(context, FlowSyncService.class);
+        intent.setAction(ACTION_DOWNLOAD_FUNCTION_CATEGORY);
+        context.startService(intent);
+    }
+
+    public static void startActionDownloadFlows(Context context, int id) {
+        Intent intent = new Intent(context, FlowSyncService.class);
+        intent.setAction(ACTION_DOWNLOAD_FLOW);
+        intent.putExtra(PARAM_ID, id);
+        context.startService(intent);
+    }
+
+    public static void startActionDownloadEntities(Context context, String id) {
+        Intent intent = new Intent(context, FlowSyncService.class);
+        intent.setAction(ACTION_DOWNLOAD_FLOW_ENTITY);
+        intent.putExtra(PARAM_ID, id);
         context.startService(intent);
     }
 
@@ -107,6 +134,9 @@ public class FlowSyncService extends IntentService {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Toast.makeText(this, "Service is starting",
                 Toast.LENGTH_LONG).show();
+        LocalBroadcastManager.getInstance(this).registerReceiver(mMessageReceiver,
+                new IntentFilter(LocalEntityService.INTENT_LOCAL));
+
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -114,12 +144,28 @@ public class FlowSyncService extends IntentService {
     protected void onHandleIntent(Intent intent) {
         if (intent != null) {
             final String action = intent.getAction();
-            if (ACTION_SYNC.equals(action)){
-                handleActionSync();
-            }
-            else if (ACTION_CLOUD_MESSAGE.equals(action)){
-                final int functionId = intent.getIntExtra(PARAM_FUNCTION_ID, 0);
-                handleActionCloudMessage(functionId);
+            switch (action) {
+                case ACTION_SYNC:
+                    handleActionSync();
+                    break;
+                case ACTION_CLOUD_MESSAGE:
+                    final String data = intent.getStringExtra(PARAM_DATA);
+                    handleActionCloudMessage(data);
+                    break;
+                case ACTION_DOWNLOAD_FUNCTION_CATEGORY:
+                    handleActionDownloadFunctionCategory();
+                    break;
+                case ACTION_DOWNLOAD_FUNCTION:
+                    handleActionDownloadFunction();
+                    break;
+                case ACTION_DOWNLOAD_FLOW:
+                    final int functionId = intent.getIntExtra(PARAM_ID, 0);
+                    handleActionDownloadFlows(functionId);
+                    break;
+                case ACTION_DOWNLOAD_FLOW_ENTITY:
+                    final String flowId = intent.getStringExtra(PARAM_ID);
+                    handleActionDownloadEntity(flowId);
+                    break;
             }
         }
     }
@@ -130,176 +176,284 @@ public class FlowSyncService extends IntentService {
 
         Toast.makeText(this, "Service is done updating",
                 Toast.LENGTH_LONG).show();
+
+        // Unregister since the activity is not visible
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(mMessageReceiver);
     }
 
     /**
-     * Handle action Sync in the provided background thread with the provided
-     * parameters.
+     * Handle action Sync: Synchronization of Flows and Entity
      */
     private void handleActionSync() {
-        ArrayList<Function> serverList = (ArrayList<Function>) getFunctionListFromServer();
-        if(serverList.size() > 0) {
-            ArrayList<Function> localList = (ArrayList<Function>) Function.objects(this).all().toList();
-            ArrayList<Function> newList = getNewList(serverList, localList),
-                    deleteList = getDeleteList(serverList, localList),
-                    updateList = getUpdateList(serverList, localList);
-
-            //Delete the functions on deleteList and related components from the db.
-            for(int i=0; i<deleteList.size(); i++){
-                Function f = deleteList.get(i);
-                deleteFlows(f);
-                f.delete(this);
-
-            }
-
-            //Add new functions in the newList and its related components
-            for(int i=0; i<newList.size(); i++){
-                if(downloadFlows(newList.get(i))){
-                    newList.get(i).setSuccess(true);
-                    newList.get(i).save(this);
-                }
-            }
-
-            //Update the function in updateList and its associated components
-            ArrayList<Function> updatedList = getUpdatedList(serverList, localList);
-            //Delete the flows associated with it
-            for(int i=0; i<updateList.size(); i++){
-                deleteFlows(updateList.get(i));
-                updateList.get(i).delete(this);
-
-            }
-            //Add the Updated Flows
-            for (int i=0; i<updatedList.size(); i++){
-                if(downloadFlows(updatedList.get(i))) {
-                    updatedList.get(i).setSuccess(true);
-                    updatedList.get(i).save(this);
-                }
-            }
-        }
+        //Download Flows from Server
+//        doDownload();
 
         //Upload Data to server
+        doUpload();
     }
 
     /**
-     * Handle action Download in the provided background thread with the provided
-     * parameters.
+     * Handle action new: sync for the first time
      */
-    private void handleActionCloudMessage(int functionId) {
+    private void handleActionNew() {
+        //Download Flows from Server
+        if (isNetworkAvailable()) {
+            if (downloadFunctionCategories(URL_FUNCTION_CATEGORY)) {
+                if (downloadFunction(URL_FUNCTION)) {
+                    Log.e("fun", "here");
+                    ArrayList<Function> functions = Function.getAllFunctions(this);
+                    if (functions.size() > 0) {
+                        for (int i = 0; i < functions.size(); i++) {
+                            if (downloadFlows(functions.get(i))) {
+                                ArrayList<ClientFlows> flows = ClientFlows.getAllFlows(this);
+                                if (flows.size() > 0) {
+                                    for (int j = 0; j < flows.size(); j++)
+                                        downloadEntity(flows.get(i));
+                                    Log.e("l", functions.get(i).getId()+"");
+                                    sendMessage(ACTION_NEW, functions.get(i).getId());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle action new: sync for the first time
+     */
+    private void handleActionDownloadFunction() {
+        //Download Flows from Server
+        if (downloadFunction(URL_FUNCTION)) {
+            sendMessage(ACTION_DOWNLOAD_FUNCTION, 1);
+        }
+        else {
+            sendMessage(ACTION_DOWNLOAD_FUNCTION, -1);
+        }
+    }
+
+    /**
+     * Handle action new: sync for the first time
+     */
+    private void handleActionDownloadFunctionCategory() {
+        //Download Flows from Server
+        if (downloadFunctionCategories(URL_FUNCTION_CATEGORY)) {
+            sendMessage(ACTION_DOWNLOAD_FUNCTION_CATEGORY, 1);
+        }
+        else {
+            sendMessage(ACTION_DOWNLOAD_FUNCTION_CATEGORY, -1);
+        }
+    }
+
+    /**
+     * Handle action new: sync for the first time
+     */
+    private void handleActionDownloadFlows(int id) {
+        //Download Flows from Server
+        Function function = Function.getFunctionById(this, id);
+        if (function != null && downloadFlows(function)) {
+            sendMessage(ACTION_DOWNLOAD_FLOW, function.getId());
+        }
+        else {
+            sendMessage(ACTION_DOWNLOAD_FLOW, -1);
+        }
+    }
+
+    /**
+     * Handle action new: sync for the first time
+     */
+    private void handleActionDownloadEntity(String id) {
+        //Download Flows from Server
+        ClientFlows flows = ClientFlows.getFlowById(this, id);
+        if (flows != null && downloadEntity(flows)) {
+            sendMessage(ACTION_DOWNLOAD_FLOW_ENTITY, flows.getId());
+        }
+        else {
+            sendMessage(ACTION_DOWNLOAD_FLOW_ENTITY, "");
+        }
+    }
+
+    /**
+     * Handle action cloud messages for update
+     * {
+     *     "type":"function, functionCategory, flow, entity"
+     *     "id":"1"
+     *     "operation":"create, update, delete"
+     *     "name":"entity name"
+     * }
+     */
+    private void handleActionCloudMessage(String data) {
         //handle what happens when message is gotten from the server
-        Function function = Function.objects(this).get(functionId);
-        //delete old flows
-        deleteFlows(function);
-        function.delete(this);
-
-        //add new flows
-        if(downloadFlows(function)) {
-            function.setSuccess(true);
-            function.save(this);
+        JSONArray array = null;
+        JSONObject object = null;
+        String type = null, id = null, operation = null;
+        try {
+            array = new JSONArray(data);
+            for (int i=0; i<array.length(); i++) {
+                object = array.getJSONObject(i);
+                type = object.getString("ObjectType");
+                id = object.getString("Id");
+                operation = object.getString("OperationType");
+                entityName = object.optString("Name");
+            }
         }
-    }
-
-    private void deleteFlows(Function function) {
-        //Delete the Links associated with the function
-        List<Link> links = function.getLinks(this).all().toList();
-        for (int j=0; j<links.size(); j++){
-            Link l = links.get(j);
-            l.delete(this);
+        catch (Exception e) {
+            e.printStackTrace();
         }
-        // Delete the ClientFlows associated with the function
-        List<ClientFlows> clientFlows = function.getClientFlows(this).all().toList();
-        for(int j=0; j<clientFlows.size(); j++){
-            ClientFlows c = clientFlows.get(j);
-            c.delete(this);
-        }
-        // Delete the EntityFlows associated with the function
-        List<EntityFlows> entityFlows = function.getEntityFlows(this).all().toList();
-        for(int j=0; j<entityFlows.size(); j++){
-            EntityFlows c = entityFlows.get(j);
-            c.delete(this);
-        }
-    }
+        switch (type){
+            case "function":
+                if (operation.equalsIgnoreCase("delete")){
+                    Function function = Function.getFunctionById(this, Integer.parseInt(id));
+                    function.delete(this);
+                }
+                else {
+                    downloadFunction(URL_FUNCTION_ID + id);
+                }
+                break;
 
-    private List<Link> getNewLinks(Function function) {
-        //Save Function to db
-        function.save(this);
-        //check on links in db associated with the function not successful
-        Filter filter = new Filter();
-        filter.is("success",0);
-        //save associated links
-        Link link = new Link();
-        link.setType("client");
-        link.setUrl("http://blog.teamtreehouse.com/api/get_recent_summary/");
-        link.setFunction(function);
-        link.save(this);
+            case "functionCategory":
+                if (operation.equalsIgnoreCase("delete")){
+                    FunctionCategory category = FunctionCategory.getFunctionCategoryById(this, Integer.parseInt(id));
+                    category.delete(this);
+                }
+                else {
+                    downloadFunctionCategories(URL_FUNCTION_CATEGORY_ID + id);
+                }
+                break;
 
-        Link link1 = new Link();
-        link1.setType("client");
-        link1.setUrl("http://blog.teamtreehouse.com/api/get_recent_summary/");
-        link1.setFunction(function);
-        link1.save(this);
+            case "flow":
+                if (operation.equalsIgnoreCase("delete")){
+                    ClientFlows flows = ClientFlows.getFlowById(this, id);
+                    flows.delete(this);
+                }
+                else {
+                    Function function = Function.getFunctionByFlowId(this, id);
+                    downloadFlows(function);
+                }
+                break;
 
-        Link link2 = new Link();
-        link2.setType("entity");
-        link2.setUrl("http://blog.teamtreehouse.com/api/get_recent_summary/");
-        link2.setFunction(function);
-        link2.save(this);
+            case "entity":
+                if (operation.equalsIgnoreCase("delete")){
+                    Entity entity = Entity.getEntityById(this, Integer.parseInt(id));
+                    entity.delete(this);
+                }
+                else {
+                    JSONObject instruction = new JSONObject(), entityData = new JSONObject();
+                    try {
+                        instruction.put(LocalEntityService.NAME_TYPE, LocalEntityService.TYPE_SERVER);
+                        instruction.put(LocalEntityService.NAME_OPERATION, LocalEntityService.OPERATION_RETRIEVE);
+                        instruction.put(LocalEntityService.NAME_ENTITY, entityName);
 
-        return function.getLinks(this).all().toList();
-    }
-
-    private ArrayList<Function> getUpdatedList(List<Function> serverList, List<Function> localList) {
-        ArrayList<Function> updatedList = new ArrayList<Function>();
-        for (int i=0; i<localList.size(); i++){
-            for (int j=0; j<serverList.size(); j++) {
-                if (localList.get(i).getFunctionId().equalsIgnoreCase(serverList.get(j).getFunctionId())) {
-                    if(localList.get(i).getVersion() < serverList.get(j).getVersion()){
-                        updatedList.add(serverList.get(j));
+                        entityData.put("ID", id);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
                     }
-                    break;
+                    LocalEntityService.startLocalEntityService(this,
+                            instruction.toString(),
+                            entityData.toString());
+                }
+                break;
+        }
+    }
+
+    private void doDownload() {
+        // 1. Download Function Categories
+        // 2. Download Functions
+        // 3. Download Flows
+        if (downloadFunctionCategories(URL_FUNCTION_CATEGORY)){
+            ArrayList<Integer> ids = FunctionCategory.getAllCategoryIds(this);
+            ArrayList<Integer> deleteList = getDeleteList(mCategory, ids);
+            if(deleteList.size() > 0) {
+                for (int i = 0; i < deleteList.size(); i++) {
+                    FunctionCategory.objects(this).get(deleteList.get(i)).delete(this);
                 }
             }
         }
-        return updatedList;
-    }
-
-    private ArrayList<Function> getUpdateList(List<Function> serverList, List<Function> localList) {
-        ArrayList<Function> updateList = new ArrayList<Function>();
-        for (int i=0; i<localList.size(); i++){
-            for (int j=0; j<serverList.size(); j++) {
-                if (localList.get(i).getFunctionId().equalsIgnoreCase(serverList.get(j).getFunctionId())) {
-                    if(localList.get(i).getVersion() < serverList.get(j).getVersion()){
-                        updateList.add(localList.get(i));
-                    }
-                    break;
-                }
+        downloadFunction(URL_FUNCTION);
+        ArrayList<Function> functions = Function.getAllFunctions(this);
+        if (functions.size() > 0){
+            for (int i=0; i<functions.size(); i++){
+                downloadFlows(functions.get(i));
             }
         }
-        return updateList;
     }
 
-    private ArrayList<Function> getNewList(ArrayList<Function> serverList, ArrayList<Function> localList) {
-        ArrayList<Function> newList = new ArrayList<Function>();
-        for (int i=0; i<serverList.size(); i++){
-            if(localList.size() > 0) {
-                for (int j = 0; j < localList.size(); j++) {
-                    if (serverList.get(i).getFunctionId().equalsIgnoreCase(localList.get(j).getFunctionId())) {
-                        break;
-                    }
-                    newList.add(serverList.get(i));
-                }
-            }
-            else {
-                newList = serverList;
-            }
-        }
-        return newList;
-    }
+//    private void deleteFlows(Function function) {
+//        //Delete the Links associated with the function
+//        List<Link> links = function.getLinks(this).all().toList();
+//        for (int j=0; j<links.size(); j++){
+//            Link l = links.get(j);
+//            l.delete(this);
+//        }
+//        // Delete the ClientFlows associated with the function
+//        List<ClientFlows> clientFlows = function.getClientFlows(this).all().toList();
+//        for(int j=0; j<clientFlows.size(); j++){
+//            ClientFlows c = clientFlows.get(j);
+//            c.delete(this);
+//        }
+//        // Delete the EntityFlows associated with the function
+//        List<EntityFlows> entityFlows = function.getEntityFlows(this).all().toList();
+//        for(int j=0; j<entityFlows.size(); j++){
+//            EntityFlows c = entityFlows.get(j);
+//            c.delete(this);
+//        }
+//        //error message sent to the caller
+//    }
+//
+//    private ArrayList<Function> getUpdatedList(List<Function> serverList, List<Function> localList) {
+//        ArrayList<Function> updatedList = new ArrayList<Function>();
+//        for (int i=0; i<localList.size(); i++){
+//            for (int j=0; j<serverList.size(); j++) {
+//                if (localList.get(i).getID().equalsIgnoreCase(serverList.get(j).getID())) {
+//                    if(localList.get(i).getVersionNumber() < serverList.get(j).getVersionNumber()){
+//                        updatedList.add(serverList.get(j));
+//                    }
+//                    break;
+//                }
+//            }
+//        }
+//        return updatedList;
+//    }
+//
+//    private ArrayList<Function> getUpdateList(List<Function> serverList, List<Function> localList) {
+//        ArrayList<Function> updateList = new ArrayList<Function>();
+//        for (int i=0; i<localList.size(); i++){
+//            for (int j=0; j<serverList.size(); j++) {
+//                if (localList.get(i).getID().equalsIgnoreCase(serverList.get(j).getID())) {
+//                    if(localList.get(i).getVersionNumber() < serverList.get(j).getVersionNumber()){
+//                        updateList.add(localList.get(i));
+//                    }
+//                    break;
+//                }
+//            }
+//        }
+//        return updateList;
+//    }
+//
+//    private ArrayList<Function> getNewList(ArrayList<Function> serverList, ArrayList<Function> localList) {
+//        ArrayList<Function> newList = new ArrayList<Function>();
+//        for (int i=0; i<serverList.size(); i++){
+//            if(localList.size() > 0) {
+//                for (int j = 0; j < localList.size(); j++) {
+//                    if (serverList.get(i).getID().equalsIgnoreCase(localList.get(j).getID())) {
+//                        break;
+//                    }
+//                    newList.add(serverList.get(i));
+//                }
+//            }
+//            else {
+//                newList = serverList;
+//            }
+//        }
+//        return newList;
+//    }
 
-    private ArrayList<Function> getDeleteList(List<Function> serverList, List<Function> localList) {
-        ArrayList<Function> deleteList = new ArrayList<Function>();
+    private ArrayList<Integer> getDeleteList(ArrayList<Integer> serverList, ArrayList<Integer> localList) {
+        ArrayList<Integer> deleteList = new ArrayList<>();
         for (int i=0; i<localList.size(); i++){
             for (int j=0; j<serverList.size(); j++) {
-                if (localList.get(i).getFunctionId().equalsIgnoreCase(serverList.get(j).getFunctionId())) {
+                if (localList.get(i).equals(serverList.get(j))) {
                     break;
                 }
                 else {
@@ -310,79 +464,358 @@ public class FlowSyncService extends IntentService {
         return deleteList;
     }
 
-    private List<Function> getFunctionListFromServer() {
+    /*
+    * download all function categories based on the user capability
+    */
+    private boolean downloadFunctionCategories(String url) {
+        if (isNetworkAvailable()) {
+            String mOutput = null;
+            try {
+                mOutput = Ion.with(this)
+                        .load("GET", url)
+                        .group(mFlowGroup)
+                        .asString()
+                        .get();
+            }
+            catch (Exception e) {
+                e.printStackTrace();
+                Log.e(TAG+"/url/download/category", e.getMessage());
+            }
+            if (mOutput != null) {
+                //Successful functions categories downloaded
+                Log.e("categories", mOutput);
+                JSONArray jsonArray = null;
+                try {
+                    JSONObject categories = new JSONObject(mOutput);
+                    jsonArray = categories.getJSONArray("functionCategories");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    Log.e(TAG+"/json/download_category", e.getMessage());
+                }
 
-        Function fxn1 = new Function();
-        fxn1.setFunctionName("team");
-        fxn1.setVersion(1);
-        fxn1.setFunctionId("a1");
+                for (int i=0; i<jsonArray.length(); i++){
+                    int id = 0;
+                    JSONObject jsonObject = null;
+                    try{
+                    jsonObject = jsonArray.getJSONObject(i);
 
-        Function fxn2 = new Function();
-        fxn2.setFunctionName("team");
-        fxn2.setVersion(1);
-        fxn2.setFunctionId("a1");
+                    id = jsonObject.getInt(FunctionCategory.COLUMN_ID);
 
-        Function fxn3 = new Function();
-        fxn3.setFunctionName("team");
-        fxn3.setVersion(1);
-        fxn3.setFunctionId("a1");
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        //TODO: error message sent to the caller
+                    }
+                    String versionNumber = jsonObject.optString(FunctionCategory.COLUMN_VERSION_NUMBER);
+                    String name = jsonObject.optString(FunctionCategory.COLUMN_NAME);
+                    int parentId = jsonObject.optInt(FunctionCategory.COLUMN_PARENT_CATEGORY_ID);
 
-        ArrayList<Function> list = new ArrayList<Function>();
-        list.add(fxn1);
-        list.add(fxn2);
-        list.add(fxn3);
+                    FunctionCategory category = FunctionCategory.getFunctionCategoryById(this, id);
+                    mCategory.add(id);
 
-        return list;
+                    if (category == null){
+                        FunctionCategory functionCategory = new FunctionCategory();
+                        functionCategory.setName(name);
+                        try {
+                            functionCategory.setValue(jsonArray.get(i).toString());
+                        }
+                        catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                        functionCategory.setVersionNumber(versionNumber);
+                        functionCategory.setParentCategoryID(parentId);
+                        functionCategory.save(this, id);
+                    }
+                    else {
+                        category.setName(name);
+                        try {
+                            category.setValue(jsonArray.get(i).toString());
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                        category.setVersionNumber(versionNumber);
+                        category.setParentCategoryID(parentId);
+                        category.save(this);
+                    }
+                }
+                return true;
+            }
+            else {
+                //TODO: error message sent to the caller
+            }
+        }
+        return false;
     }
 
     /*
-    * Get flows based on functions
+    * download all function based on the user capability
     */
-    private boolean downloadFlows(Function function) {
-        String flowsContent;
-        boolean success = false;
-        List<Link> urls = getNewLinks(function);
-        for(int i=0; i<urls.size(); i++) {
-            if (isNetworkAvailable()) {
-                //Network Available
+    private boolean downloadFunction(String url) {
+        if (isNetworkAvailable()) {
+            String output;
+            try {
+                output = Ion.with(this)
+                        .load("GET", url)
+                        .group(mFlowGroup)
+                        .asString()
+                        .get();
+            }
+            catch (Exception e) {
+                e.printStackTrace();
+                Log.e(TAG+"/url/download_function", e.getMessage());
+                return false;
+            }
+            if (output != null) {
+                //Successful functions categories downloaded
+                Log.e("function", output);
+                JSONArray jsonArray = null;
                 try {
-                    flowsContent = downloadFlowsAsString(urls.get(i).getUrl());
-                    switch (urls.get(i).getType()) {
-                        case "entity":
-                            EntityFlows flow = new EntityFlows();
-                            flow.setSync(true);
-                            flow.setEntityFlow(flowsContent);
-                            flow.setFunction(function);
-                            flow.setLink(urls.get(i));
-                            flow.save(this);
-                            break;
-
-                        case "client":
-                            ClientFlows flows = new ClientFlows();
-                            flows.setFunction(function);
-                            flows.setClientFlow(flowsContent);
-                            flows.setLink(urls.get(i));
-                            flows.save(this);
-                            break;
-
-                        default:
-                            //Unknown Flow
-                    }
-                    urls.get(i).setSuccess(true);
-                    urls.get(i).save(this);
-
-                    success = true;
-                } catch (IOException e) {
-                    //Interrupted Download
+                    JSONObject functions = new JSONObject(output);
+                    jsonArray = functions.getJSONArray("functions");
+                }
+                catch (Exception e) {
+                    e.printStackTrace();
                     return false;
                 }
-            } else {
-                // Network Unavailable
+                for (int i=0; i<jsonArray.length(); i++){
+                    JSONObject jsonObject = null;
+                    int id = 0;
+                    try {
+                        jsonObject = jsonArray.getJSONObject(i);
+                        id = jsonObject.getInt(Function.COLUMN_ID);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        Log.e(TAG+"/json/function/id", e.getMessage());
+                        return false;
+                    }
+                    String versionNumber = jsonObject.optString(Function.COLUMN_VERSION_NUMBER);
+                    String name = jsonObject.optString(Function.COLUMN_NAME);
+                    String description = jsonObject.optString(Function.COLUMN_DESCRIPTION);
+                    String flowGuid = jsonObject.optString(Function.COLUMN_FLOWGUID);
+                    int categoryId = jsonObject.optInt(Function.COLUMN_CATEGORY_ID);
+
+                    Function function = Function.getFunctionById(this, id);
+                    mFunctions.add(id);
+                    if (function == null){
+                        Function newFunction = new Function();
+                        try {
+                            newFunction.setValue(jsonArray.get(i).toString());
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                        newFunction.setVersionNumber(versionNumber);
+                        newFunction.setName(name);
+                        newFunction.setDescription(description);
+                        newFunction.setFlowGuid(flowGuid);
+                        newFunction.setCategoryID(categoryId);
+                        newFunction.save(this, id);
+                    }
+                    else {
+                        try {
+                            function.setValue(jsonArray.get(i).toString());
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                        function.setVersionNumber(versionNumber);
+                        function.setName(name);
+                        function.setDescription(description);
+                        function.setFlowGuid(flowGuid);
+                        function.setCategoryID(categoryId);
+                        function.save(this);
+                    }
+                }
+                return true;
+            }
+            else {
                 return false;
             }
         }
-        sendMessage(function.getId());
-        return success;
+        return false;
+    }
+
+    /*
+    * download flows based on functions
+    */
+    private boolean downloadFlows(Function function) {
+        if (isNetworkAvailable()) {
+            //Network Available
+            try {
+                String guid = function.getFlowGuid();
+                String flowsContent;
+                flowsContent = Ion.with(this)
+                        .load("GET", URL_FLOWS + guid)
+                        .group(mFlowGroup)
+                        .asString()
+                        .get();
+                if (flowsContent != null) {
+                    Log.e("flows", flowsContent);
+                    String flowId = null;
+                    JSONObject object = new JSONObject(flowsContent);
+                    flowId = object.getString(ClientFlows.COLUMN_ID);
+
+                    mFlows.add(flowId);
+
+                    ClientFlows flows = ClientFlows.getFlowById(this, flowId);
+                    if (flows == null) {
+                        ClientFlows clientFlows = new ClientFlows();
+                        clientFlows.setFlows(flowsContent);
+                        clientFlows.setFlowsID(flowId);
+                        clientFlows.save(this);
+                    }
+                    else {
+                        flows.setFlows(flowsContent);
+                        flows.setFlowsID(flowId);
+                        flows.save(this);
+                    }
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            } catch (Exception e) {
+                //Interrupted Download
+                return false;
+            }
+        } else {
+            // Network Unavailable
+            return false;
+        }
+    }
+
+    /*
+    * download entities based on flows
+    */
+    private boolean downloadEntity(ClientFlows flows) {
+        if (isNetworkAvailable()) {
+            //Network Available
+            try {
+                String guid = flows.getFlowsID();
+                String entityOutput;
+                try {
+                    entityOutput = Ion.with(this)
+                            .load("GET", URL_ENTITY+guid)
+                            .setStringBody(guid)
+                            .group(mFlowGroup)
+                            .asString()
+                            .get();
+                }
+                catch (Exception e) {
+                    e.printStackTrace();
+                    return true;
+                }
+                if (entityOutput != null) {
+                    Log.e("entities", entityOutput);
+                    JSONArray jsonArray = new JSONArray(entityOutput);
+                    for (int i=0; i<jsonArray.length(); i++){
+                        JSONObject object = jsonArray.getJSONObject(i);
+                        String entityName = object.getString("EntityType");
+                        JSONObject entityJson = object.getJSONObject("Entity");
+
+                        int id = entityJson.getInt(Entity.COLUMN_ID);
+
+                        Entity entity = Entity.getEntityById(this, id);
+                        if (entity == null) {
+                            Entity newEntity = new Entity();
+                            newEntity.setEntityName(entityName);
+                            newEntity.setSync(true);
+                            newEntity.setValue(entityOutput);
+                            newEntity.save(this, id);
+                        }
+                        else {
+                            entity.setEntityName(entityName);
+                            entity.setSync(true);
+                            entity.setValue(entityOutput);
+                            entity.save(this);
+                        }
+                    }
+                }
+                else {
+                    return false;
+                }
+            } catch (Exception e) {
+                //Interrupted Download
+                return false;
+            }
+        } else {
+            // Network Unavailable
+            return false;
+        }
+        return false;
+    }
+
+    /*
+    * Perform Upload functions
+    */
+    private void doUpload(){
+        ArrayList<Entity> allEntities = Entity.getUnSyncedEntity(this);
+
+        if (allEntities.size() > 0) {
+            //Create batches of entity to send to the server
+            ArrayList<ArrayList<Entity>> splitted = new ArrayList<>();
+            int arrayLength = allEntities.size();
+            ArrayList<Entity> aBatch = new ArrayList<>(ENTITY_PER_BATCH);
+            for (int i = 0; i < arrayLength; i++) {
+                int arrayIndex = i % ENTITY_PER_BATCH;
+                if (arrayIndex == 0) {
+                    if (i != 0) {
+                        splitted.add(aBatch);
+                    }
+                    aBatch = new ArrayList<>(ENTITY_PER_BATCH);
+                }
+                aBatch.add(arrayIndex, allEntities.get(i));
+            }
+            splitted.add(aBatch);
+
+            for (int j = 0; j < splitted.size(); j++) {
+                ArrayList<Entity> batchEntity = splitted.get(j);
+                if (batchEntity != null) {
+                    JSONArray batch = new JSONArray();
+                    for (int i = 0; i < batchEntity.size(); i++) {
+                        String input = batchEntity.get(i).getValue();
+                        String entityName = batchEntity.get(i).getEntityName();
+                        JSONObject object = new JSONObject();
+                        try {
+                            JSONObject data = new JSONObject(input);
+                            object.put(LocalEntityService.NAME_ENTITY, entityName);
+                            object.put(LocalEntityService.PARAM_DATA, data);
+                            batch.put(object);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            Log.e(TAG, input);
+                        }
+                    }
+                    uploadEntities(batchEntity, batch);
+                }
+            }
+        }
+    }
+
+    /*
+    * Upload Entities to the server
+    */
+    private void uploadEntities(ArrayList<Entity> entities, JSONArray batch) {
+        JsonArray jsonArray = new JsonParser().parse(batch.toString()).getAsJsonArray();
+        String result;
+        try {
+            result = Ion.with(this)
+                    .load("POST", URL_UPLOAD)
+                    .setJsonArrayBody(jsonArray)
+                    .group(LocalEntityService.mEntityGroup)
+                    .asString()
+                    .get();
+            JSONObject output = new JSONObject(result);
+            if (output.getString(LocalEntityService
+                    .NAME_EVENT_NAME).equalsIgnoreCase(LocalEntityService.VALUE_UPLOADED)){
+                for (int i=0; i<entities.size(); i++) {
+                    Entity entity = entities.get(i);
+                    entity.setSync(true);
+                    entity.save(FlowSyncService.this);
+                }
+            }
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            Log.e("3", e.getMessage());
+        }
     }
 
     /*
@@ -396,28 +829,53 @@ public class FlowSyncService extends IntentService {
     }
 
     /*
-    * Read data from the server as string
+    * sends broadcast
     */
-    private String downloadFlowsAsString(String url) throws IOException{
-        String contentAsString = null;
-        try {
-            contentAsString = Ion.with(this).load("GET", url)
-                    .asString().get();
-        }
-        catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        catch (ExecutionException e) {
-            e.printStackTrace();
-        }
-        return contentAsString;
-    }
-
-    private void sendMessage(int no) {
-        Intent intent = new Intent("my-event");
+    private void sendMessage(String action, int id) {
+        Intent intent = new Intent(action);
         // add data
-        intent.putExtra("message", no);
+        intent.putExtra(PARAM_MESSAGE, id);
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
 
+    /*
+    * sends broadcast
+    */
+    private void sendMessage(String action, String id) {
+        Intent intent = new Intent(action);
+        // add data
+        intent.putExtra(PARAM_MESSAGE, id);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
+    // handler for received Intents for the "my-event" event
+    private BroadcastReceiver mMessageReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // Extract data included in the Intent
+            String message = intent.getStringExtra(LocalEntityService.EXTRA_MESSAGE);
+            JSONObject eventData;
+            try {
+                JSONObject object = new JSONObject(message);
+                JSONArray jsonArray = object.getJSONArray(LocalEntityService.NAME_EVENT_DATA);
+                eventData = jsonArray.getJSONObject(0);
+                int id = eventData.getInt(Entity.COLUMN_ID);
+                Entity entity = Entity.getEntity(context, entityName, id);
+                if (entity == null){
+                    Entity newEntity = new Entity();
+                    newEntity.setSync(true);
+                    newEntity.setEntityName(entityName);
+                    newEntity.setValue(eventData.toString());
+                    newEntity.save(context);
+                }
+                else {
+                    entity.setValue(eventData.toString());
+                    entity.setSync(true);
+                    entity.save(context);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    };
 }

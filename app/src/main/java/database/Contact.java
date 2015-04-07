@@ -6,6 +6,8 @@ import com.orm.androrm.CharField;
 import com.orm.androrm.Model;
 import com.orm.androrm.QuerySet;
 
+import java.util.ArrayList;
+
 /**
  * Created by emacodos on 2/19/2015.
  */
@@ -14,8 +16,8 @@ public class Contact extends Model {
     protected CharField name;
     protected CharField number;
 
-    public Contact(){
-        super(true);
+    public Contact() {
+        super();
 
         name = new CharField();
         number = new CharField();
@@ -39,5 +41,9 @@ public class Contact extends Model {
 
     public void setNumber(String phoneNo) {
         number.set(phoneNo);
+    }
+
+    public static ArrayList<Contact> getAllContact(Context context) {
+        return (ArrayList<Contact>) Contact.objects(context).all().toList();
     }
 }

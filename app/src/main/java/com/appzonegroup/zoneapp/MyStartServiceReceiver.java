@@ -15,6 +15,6 @@ public class MyStartServiceReceiver extends BroadcastReceiver {
         FlowSyncService.startActionSync(context);
 
         //Start Contact Sync
-        ContactSyncService.startContactSync(context,MainActivity.getContact());
+        ContactSyncService.startContactSync(context);
     }
 }
