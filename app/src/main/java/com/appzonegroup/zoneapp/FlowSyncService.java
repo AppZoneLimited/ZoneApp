@@ -21,10 +21,11 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 
-import database.ClientFlows;
-import database.Entity;
-import database.Function;
-import database.FunctionCategory;
+import dejavu.appzonegroup.com.dejavuandroid.DataBases.ClientFlows;
+import dejavu.appzonegroup.com.dejavuandroid.DataBases.Entity;
+import dejavu.appzonegroup.com.dejavuandroid.DataBases.Function;
+import dejavu.appzonegroup.com.dejavuandroid.DataBases.FunctionCategory;
+
 
 /**
  * Created by emacodos on 2/26/2015.
@@ -33,7 +34,7 @@ import database.FunctionCategory;
 /**
  * @author Onyejekwe E. C emacodos
  *
- * An {@link IntentService} subclass for handling asynchronous task requests in
+ * An {@link android.app.IntentService} subclass for handling asynchronous task requests in
  * a service on a separate handler thread.
  *
  */
@@ -55,19 +56,19 @@ public class FlowSyncService extends IntentService {
      * Starts this service to perform action Download with the given parameters. If
      * the service is already performing a task this action will be queued.
      *
-     * @see IntentService
+     * @see android.app.IntentService
      */
 
     private static final String PARAM_ID = "com.zoneapp.param.PARAM_ID";
     private static final String PARAM_DATA = "com.zoneapp.param.PARAM_DATA";
-    private static final String PARAM_MESSAGE = "com.zoneapp.param.MESSAGE";
+    public static final String PARAM_MESSAGE = "com.zoneapp.param.MESSAGE";
 
-    public static final String URL_FUNCTION_CATEGORY = "http://192.168.2.213:11984/api/Function/GetAllFunctionCategories/";
-    public static final String URL_FUNCTION = "http://192.168.2.213:11984/api/Function/GetAll/";
-    public static final String URL_FUNCTION_CATEGORY_ID = "http://192.168.2.213:11984/api/FunctionCategory/Get/";
-    public static final String URL_FUNCTION_ID = "http://192.168.2.213:11984/api/Function/Get/";
-    public static final String URL_ENTITY = "http://192.168.2.213:11984/api/Flow/GetFlowEntities/";
-    public static final String URL_FLOWS = "http://192.168.2.213:11984/api/Flow/Get/";
+    public static final String URL_FUNCTION_CATEGORY = "http://192.168.2.205:11984/api/Function/GetAllFunctionCategories/";
+    public static final String URL_FUNCTION = "http://192.168.2.205:11984/api/Function/GetAll/";
+    public static final String URL_FUNCTION_CATEGORY_ID = "http://192.168.2.205:11984/api/FunctionCategory/Get/";
+    public static final String URL_FUNCTION_ID = "http://192.168.2.205:11984/api/Function/Get/";
+    public static final String URL_ENTITY = "http://192.168.2.205:11984/api/Flow/GetFlowEntities/";
+    public static final String URL_FLOWS = "http://192.168.2.205:11984/api/Flow/Get/";
     public static final String URL_UPLOAD = "http://192.168.2.182:8030/api/entitydataservice/performupload";
 
     private static final int ENTITY_PER_BATCH = 2;
@@ -223,19 +224,6 @@ public class FlowSyncService extends IntentService {
     /**
      * Handle action new: sync for the first time
      */
-    private void handleActionDownloadFunction() {
-        //Download Flows from Server
-        if (downloadFunction(URL_FUNCTION)) {
-            sendMessage(ACTION_DOWNLOAD_FUNCTION, 1);
-        }
-        else {
-            sendMessage(ACTION_DOWNLOAD_FUNCTION, -1);
-        }
-    }
-
-    /**
-     * Handle action new: sync for the first time
-     */
     private void handleActionDownloadFunctionCategory() {
         //Download Flows from Server
         if (downloadFunctionCategories(URL_FUNCTION_CATEGORY)) {
@@ -243,6 +231,19 @@ public class FlowSyncService extends IntentService {
         }
         else {
             sendMessage(ACTION_DOWNLOAD_FUNCTION_CATEGORY, -1);
+        }
+    }
+
+    /**
+     * Handle action new: sync for the first time
+     */
+    private void handleActionDownloadFunction() {
+        //Download Flows from Server
+        if (downloadFunction(URL_FUNCTION)) {
+            sendMessage(ACTION_DOWNLOAD_FUNCTION, 1);
+        }
+        else {
+            sendMessage(ACTION_DOWNLOAD_FUNCTION, -1);
         }
     }
 
@@ -503,7 +504,6 @@ public class FlowSyncService extends IntentService {
 
                     } catch (Exception e) {
                         e.printStackTrace();
-                        //TODO: error message sent to the caller
                     }
                     String versionNumber = jsonObject.optString(FunctionCategory.COLUMN_VERSION_NUMBER);
                     String name = jsonObject.optString(FunctionCategory.COLUMN_NAME);
@@ -540,7 +540,6 @@ public class FlowSyncService extends IntentService {
                 return true;
             }
             else {
-                //TODO: error message sent to the caller
             }
         }
         return false;

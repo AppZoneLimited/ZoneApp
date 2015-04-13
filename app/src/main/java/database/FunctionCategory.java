@@ -70,7 +70,6 @@ public class FunctionCategory extends Model {
     public void setParentCategoryID(Integer parentCategoryID) {
         ParentCategoryID.set(parentCategoryID);
     }
-
     public static FunctionCategory getFunctionCategoryById(Context context, int id) {
         return FunctionCategory.objects(context).get(id);
     }

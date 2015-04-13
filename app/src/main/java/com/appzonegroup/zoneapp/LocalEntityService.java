@@ -21,7 +21,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 
-import database.Entity;
+import dejavu.appzonegroup.com.dejavuandroid.DataBases.Entity;
+
 
 /**
  * Created by emacodos on 3/7/2015.

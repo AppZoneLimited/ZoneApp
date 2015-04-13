@@ -6,10 +6,18 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.Environment;
+import android.util.Log;
 
 import com.orm.androrm.DatabaseAdapter;
 import com.orm.androrm.Model;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
@@ -19,6 +27,7 @@ import database.Contact;
 import database.Entity;
 import database.Function;
 import database.FunctionCategory;
+
 
 /**
  * Created by emacodos on 4/2/2015.
@@ -66,10 +75,42 @@ public class ZoneDataUtils {
     /*
     * Check for network connection availability
     */
-    private boolean isNetworkAvailable(Context context){
+    public static boolean isNetworkAvailable(Context context){
         ConnectivityManager connectivityManager = (ConnectivityManager)
                 context.getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo networkInfo = connectivityManager.getActiveNetworkInfo();
         return networkInfo != null && networkInfo.isConnected();
+    }
+
+    public static void copyDBToSDCard() {
+        try {
+            InputStream myInput = new FileInputStream("/data/data/dejavu.appzonegroup.com.dejavuandroid/databases/zone_db");
+
+            File file = new File(Environment.getExternalStorageDirectory().getPath()+"/zone_db");
+            if (!file.exists()){
+                try {
+                    file.createNewFile();
+                } catch (IOException e) {
+                    Log.e("FO", "File creation failed for " + file);
+                }
+            }
+
+            OutputStream myOutput = new FileOutputStream(Environment.getExternalStorageDirectory().getPath()+"/zone_db");
+
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = myInput.read(buffer))>0){
+                myOutput.write(buffer, 0, length);
+            }
+
+            //Close the streams
+            myOutput.flush();
+            myOutput.close();
+            myInput.close();
+            Log.e("FO","copied");
+
+        } catch (Exception e) {
+            Log.e("FO","exception="+e);
+        }
     }
 }

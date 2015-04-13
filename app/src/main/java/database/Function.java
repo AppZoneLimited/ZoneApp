@@ -140,4 +140,12 @@ public class Function extends Model {
         }
         return null;
     }
+
+    public static ArrayList<Function> getFunctionByCategory(Context context, int categoryId) {
+        Filter filter = new Filter();
+        filter.is("CategoryId", categoryId);
+        ArrayList<Function> functions = (ArrayList<Function>) Function.objects(context)
+                .filter(filter).toList();
+       return functions;
+    }
 }

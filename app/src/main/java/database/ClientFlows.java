@@ -12,6 +12,7 @@ import java.util.ArrayList;
 /**
  * Created by emacodos on 2/18/2015.
  */
+
 public class ClientFlows extends Model {
 
     public static final String COLUMN_ID = "Id";

@@ -22,7 +22,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 
-import database.Contact;
+import dejavu.appzonegroup.com.dejavuandroid.DataBases.Contact;
 
 /**
  * Created by emacodos on 2/26/2015.
@@ -30,7 +30,7 @@ import database.Contact;
 
 /**
  * @author Onyejekwe E. C emacodos
- * An {@link IntentService} subclass for handling asynchronous task requests in
+ * An {@link android.app.IntentService} subclass for handling asynchronous task requests in
  * a service on a separate handler thread.
  */
 public class ContactSyncService extends IntentService {
