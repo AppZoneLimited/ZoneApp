@@ -21,7 +21,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 
-import dejavu.appzonegroup.com.dejavuandroid.DataBases.Entity;
+import database.Entity;
 
 
 /**
@@ -198,7 +198,6 @@ public class LocalEntityService extends IntentService{
                 mOutput = eventError("Connection Timed Out");
             }
                 if (mOutput != null) {
-                    Log.e("data", mOutput);
                     return mOutput;
                 }
                 else

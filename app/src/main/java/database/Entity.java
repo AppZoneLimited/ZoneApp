@@ -17,7 +17,7 @@ import java.util.ArrayList;
  */
 public class Entity extends Model {
 
-    public static final String COLUMN_ID = "Id";
+    public static final String COLUMN_ID = "::Id::";
     public static final String COLUMN_TABLE_NAME = "tableName";
     public static final String COLUMN_SYNC = "sync";
 
@@ -81,22 +81,6 @@ public class Entity extends Model {
             return array.toString();
         }
         return null;
-    }
-
-    public static Entity getEntity(Context context, String entityName, int id){
-        Filter filter = new Filter();
-        filter.is(Entity.COLUMN_TABLE_NAME, entityName);
-        return Entity.objects(context).filter(filter).get(id);
-    }
-
-    public static String getEntityAsString(Context context, String entityName, int id){
-        Filter filter = new Filter();
-        filter.is(Entity.COLUMN_TABLE_NAME, entityName);
-        return Entity.objects(context).filter(filter).get(id).getValue();
-    }
-
-    public static Entity getEntityById(Context context, int id){
-        return  Entity.objects(context).get(id);
     }
 
     /*

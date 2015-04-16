@@ -1,10 +1,8 @@
 package com.appzonegroup.zoneapp;
 
 import android.app.IntentService;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.support.v4.content.LocalBroadcastManager;
@@ -12,6 +10,7 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.koushikdutta.ion.Ion;
 
@@ -21,10 +20,10 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 
-import dejavu.appzonegroup.com.dejavuandroid.DataBases.ClientFlows;
-import dejavu.appzonegroup.com.dejavuandroid.DataBases.Entity;
-import dejavu.appzonegroup.com.dejavuandroid.DataBases.Function;
-import dejavu.appzonegroup.com.dejavuandroid.DataBases.FunctionCategory;
+import database.ClientFlows;
+import database.Entity;
+import database.Function;
+import database.FunctionCategory;
 
 
 /**
@@ -44,7 +43,6 @@ public class FlowSyncService extends IntentService {
 
     // Rename actions, choose action names that describe tasks that this
     // IntentService can perform, e.g. ACTION_FETCH_NEW_ITEMS
-    public static final String ACTION_NEW = "com.zoneapp.action.NEW";
     public static final String ACTION_SYNC = "com.zoneapp.action.SYNC";
     public static final String ACTION_CLOUD_MESSAGE = "com.zoneapp.action.CLOUD.MESSAGE";
     public static final String ACTION_DOWNLOAD_FUNCTION = "com.zoneapp.action.FUNCTION";
@@ -81,12 +79,6 @@ public class FlowSyncService extends IntentService {
     private ArrayList<Integer> mCategory = new ArrayList<>();
 
     // Customize helper method
-
-    public static void startActionNew(Context context) {
-        Intent intent = new Intent(context, FlowSyncService.class);
-        intent.setAction(ACTION_NEW);
-        context.startService(intent);
-    }
 
     public static void startActionSync(Context context) {
         Intent intent = new Intent(context, FlowSyncService.class);
@@ -135,8 +127,6 @@ public class FlowSyncService extends IntentService {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Toast.makeText(this, "Service is starting",
                 Toast.LENGTH_LONG).show();
-        LocalBroadcastManager.getInstance(this).registerReceiver(mMessageReceiver,
-                new IntentFilter(LocalEntityService.INTENT_LOCAL));
 
         return super.onStartCommand(intent, flags, startId);
     }
@@ -177,9 +167,6 @@ public class FlowSyncService extends IntentService {
 
         Toast.makeText(this, "Service is done updating",
                 Toast.LENGTH_LONG).show();
-
-        // Unregister since the activity is not visible
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(mMessageReceiver);
     }
 
     /**
@@ -191,34 +178,6 @@ public class FlowSyncService extends IntentService {
 
         //Upload Data to server
         doUpload();
-    }
-
-    /**
-     * Handle action new: sync for the first time
-     */
-    private void handleActionNew() {
-        //Download Flows from Server
-        if (isNetworkAvailable()) {
-            if (downloadFunctionCategories(URL_FUNCTION_CATEGORY)) {
-                if (downloadFunction(URL_FUNCTION)) {
-                    Log.e("fun", "here");
-                    ArrayList<Function> functions = Function.getAllFunctions(this);
-                    if (functions.size() > 0) {
-                        for (int i = 0; i < functions.size(); i++) {
-                            if (downloadFlows(functions.get(i))) {
-                                ArrayList<ClientFlows> flows = ClientFlows.getAllFlows(this);
-                                if (flows.size() > 0) {
-                                    for (int j = 0; j < flows.size(); j++)
-                                        downloadEntity(flows.get(i));
-                                    Log.e("l", functions.get(i).getId()+"");
-                                    sendMessage(ACTION_NEW, functions.get(i).getId());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /**
@@ -336,8 +295,10 @@ public class FlowSyncService extends IntentService {
 
             case "entity":
                 if (operation.equalsIgnoreCase("delete")){
-                    Entity entity = Entity.getEntityById(this, Integer.parseInt(id));
-                    entity.delete(this);
+                    ArrayList<Entity> entities = Entity.getAllEntityByName(this, entityName);
+                    for (int i=0; i<entities.size(); i++) {
+                        entities.get(i).delete(this);
+                    }
                 }
                 else {
                     JSONObject instruction = new JSONObject(), entityData = new JSONObject();
@@ -346,13 +307,49 @@ public class FlowSyncService extends IntentService {
                         instruction.put(LocalEntityService.NAME_OPERATION, LocalEntityService.OPERATION_RETRIEVE);
                         instruction.put(LocalEntityService.NAME_ENTITY, entityName);
 
-                        entityData.put("ID", id);
-                    } catch (JSONException e) {
+                        entityData.put("::Id::", id);
+                    }
+                    catch (JSONException e) {
                         e.printStackTrace();
                     }
-                    LocalEntityService.startLocalEntityService(this,
-                            instruction.toString(),
-                            entityData.toString());
+                    if (isNetworkAvailable()) {
+                        JsonObject dataObj = new JsonParser().parse(entityData.toString()).getAsJsonObject();
+                        JsonObject insObj = new JsonParser().parse(instruction.toString()).getAsJsonObject();
+
+                        JsonObject json = new JsonObject();
+                        json.add(LocalEntityService.PARAM_INSTRUCTION, insObj);
+                        json.add(LocalEntityService.PARAM_DATA, dataObj);
+
+                        String mOutput = null;
+                        try {
+                            mOutput = Ion.with(this)
+                                    .load("POST", LocalEntityService.URL_ENTITY)
+                                    .setJsonObjectBody(json)
+                                    .asString()
+                                    .get();
+                        }
+                        catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        if (mOutput != null) {
+                            try {
+                                JSONObject jsonObject = new JSONObject(mOutput);
+                                String eventName = jsonObject.optString(LocalEntityService.NAME_EVENT_NAME);
+                                JSONArray eventData = jsonObject.getJSONArray(LocalEntityService.NAME_EVENT_DATA);
+                                if (eventName.equalsIgnoreCase(LocalEntityService.VALUE_RETRIEVED)){
+                                    for (int i=0; i<eventData.length(); i++){
+                                        Entity entity = new Entity();
+                                        entity.setSync(true);
+                                        entity.setValue(eventData.get(i).toString());
+                                        entity.setEntityName(entityName);
+                                        entity.save(this);
+                                    }
+                                }
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
                 }
                 break;
         }
@@ -484,7 +481,6 @@ public class FlowSyncService extends IntentService {
             }
             if (mOutput != null) {
                 //Successful functions categories downloaded
-                Log.e("categories", mOutput);
                 JSONArray jsonArray = null;
                 try {
                     JSONObject categories = new JSONObject(mOutput);
@@ -565,7 +561,6 @@ public class FlowSyncService extends IntentService {
             }
             if (output != null) {
                 //Successful functions categories downloaded
-                Log.e("function", output);
                 JSONArray jsonArray = null;
                 try {
                     JSONObject functions = new JSONObject(output);
@@ -646,7 +641,6 @@ public class FlowSyncService extends IntentService {
                         .asString()
                         .get();
                 if (flowsContent != null) {
-                    Log.e("flows", flowsContent);
                     String flowId = null;
                     JSONObject object = new JSONObject(flowsContent);
                     flowId = object.getString(ClientFlows.COLUMN_ID);
@@ -702,29 +696,17 @@ public class FlowSyncService extends IntentService {
                     return true;
                 }
                 if (entityOutput != null) {
-                    Log.e("entities", entityOutput);
                     JSONArray jsonArray = new JSONArray(entityOutput);
                     for (int i=0; i<jsonArray.length(); i++){
                         JSONObject object = jsonArray.getJSONObject(i);
                         String entityName = object.getString("EntityType");
                         JSONObject entityJson = object.getJSONObject("Entity");
 
-                        int id = entityJson.getInt(Entity.COLUMN_ID);
-
-                        Entity entity = Entity.getEntityById(this, id);
-                        if (entity == null) {
-                            Entity newEntity = new Entity();
-                            newEntity.setEntityName(entityName);
-                            newEntity.setSync(true);
-                            newEntity.setValue(entityOutput);
-                            newEntity.save(this, id);
-                        }
-                        else {
-                            entity.setEntityName(entityName);
-                            entity.setSync(true);
-                            entity.setValue(entityOutput);
-                            entity.save(this);
-                        }
+                        Entity entity = new Entity();
+                        entity.setEntityName(entityName);
+                        entity.setSync(true);
+                        entity.setValue(entityJson.toString());
+                        entity.save(this);
                     }
                 }
                 else {
@@ -813,7 +795,7 @@ public class FlowSyncService extends IntentService {
         }
         catch (Exception e) {
             e.printStackTrace();
-            Log.e("3", e.getMessage());
+            Log.e(TAG+"/UploadEntities", e.getMessage());
         }
     }
 
@@ -846,35 +828,4 @@ public class FlowSyncService extends IntentService {
         intent.putExtra(PARAM_MESSAGE, id);
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
-
-    // handler for received Intents for the "my-event" event
-    private BroadcastReceiver mMessageReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            // Extract data included in the Intent
-            String message = intent.getStringExtra(LocalEntityService.EXTRA_MESSAGE);
-            JSONObject eventData;
-            try {
-                JSONObject object = new JSONObject(message);
-                JSONArray jsonArray = object.getJSONArray(LocalEntityService.NAME_EVENT_DATA);
-                eventData = jsonArray.getJSONObject(0);
-                int id = eventData.getInt(Entity.COLUMN_ID);
-                Entity entity = Entity.getEntity(context, entityName, id);
-                if (entity == null){
-                    Entity newEntity = new Entity();
-                    newEntity.setSync(true);
-                    newEntity.setEntityName(entityName);
-                    newEntity.setValue(eventData.toString());
-                    newEntity.save(context);
-                }
-                else {
-                    entity.setValue(eventData.toString());
-                    entity.setSync(true);
-                    entity.save(context);
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-    };
 }
